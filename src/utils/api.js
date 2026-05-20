@@ -1,23 +1,19 @@
-export async function askMuse({
-  question,
-  language,
-  headers = {},
-  extraBody = {}
-}) {
-  const response = await fetch('/api/ask', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...headers
-    },
-    body: JSON.stringify({
-      question,
-      language,
-      ...extraBody
-    })
+// src/utils/api.js
+/**
+ * Send a question to the MUSE backend (/api/ask).
+ * Returns { text: string }.
+ */
+export async function askMuse({ question, language = 'en-US' }) {
+  const res = await fetch('/api/ask', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ question, language }),
   });
 
-  const data = await response.json();
-  return data;
-}
+  if (!res.ok) {
+    const err = await res.text().catch(() => res.statusText);
+    throw new Error(`MUSE API error ${res.status}: ${err}`);
+  }
 
+  return res.json(); // { text: "..." }
+}

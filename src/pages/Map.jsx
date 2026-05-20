@@ -1,10 +1,13 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from '../components/Sidebar';
 import { t } from '../utils/translations';
 import { getNextLanguage, languageChangedMessage } from '../utils/language';
 import { speak } from '../utils/speak';
 import { LOCATIONS, NAV_NODES } from '../utils/mapData';
 import { findPath, getNearestLocation } from '../utils/pathfinding';
+import { smoothPath, pathToSvgD, pathToInstructions, instructionsToString } from '../utils/pathTranslator';
+import { io } from 'socket.io-client';
+
 
 const MAP_FEATURES = [
   { key: 'feature1Title', keyDesc: 'feature1Desc' },
@@ -12,423 +15,375 @@ const MAP_FEATURES = [
   { key: 'feature3Title', keyDesc: 'feature3Desc' }
 ];
 
+// ─────────────────────────────────────────────────────────────
+// Logging helper — groups related logs so console stays readable
+// ─────────────────────────────────────────────────────────────
+function logPath(label, { startPos, snappedTarget, path, instructions, currentHeading }) {
+  console.group(`🗺️  [${label}]`);
+  console.log('  startPos        :', startPos);
+  console.log('  snappedTarget   :', snappedTarget);
+  console.log('  currentHeading  :', currentHeading, '°');
+  console.log('  path nodes      :', path.map(n => n.id).join(' → '));
+  console.log('  path length     :', path.length, 'nodes');
+  console.log('  instruction cnt :', instructions.length);
+  console.log('  instructions    :\n' + instructionsToString(instructions));
+  console.groupEnd();
+}
+
 export default function Map({
   language,
   switchLanguage
 }) {
-  const strings =
-    t[language] || t['en-US'];
+  const strings = t[language] || t['en-US'];
 
-  const [initialPos, setInitialPos] =
-    useState({ x: 50, y: 48 });
-
-  const [initialLocation,
-    setInitialLocation] =
-    useState(null);
-
-  const [targetPos, setTargetPos] =
-    useState({ x: 50, y: 48 });
-
-  const [selectedItem,
-    setSelectedItem] =
-    useState(null);
-
-  const [searchQuery,
-    setSearchQuery] =
-    useState('');
-
-  const [chatQuery,
-    setChatQuery] =
-    useState('');
-
-  const [chatResponse,
-    setChatResponse] =
-    useState(strings.chatIntro);
-
-  const [chatBusy,
-    setChatBusy] =
-    useState(false);
-
-  const [routePath,
-    setRoutePath] =
-    useState([]);
-
-  const [isFullscreen,
-    setIsFullscreen] =
-    useState(false);
-
+  const [initialLocation, setInitialLocation] = useState(null);
+  const [isSettingInitialPosition, setIsSettingInitialPosition] = useState(false);
+  const [targetPos, setTargetPos] = useState({ x: 50, y: 48 });
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [chatQuery, setChatQuery] = useState('');
+  const [chatResponse, setChatResponse] = useState(strings.chatIntro);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [routePath, setRoutePath] = useState([]);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedArtifact, setSelectedArtifact] = useState(null);
-  const [clickTarget, setClickTarget] = useState(null); // {x, y} in map % coords
+  const [clickTarget, setClickTarget] = useState(null);
+  const [displayedText, setDisplayedText] = useState('');
+  const [currentHeading, setCurrentHeading] = useState(0);
+  const [isTyping, setIsTyping] = useState(false);
+  const [activeWaypoint, setActiveWaypoint] = useState(null);
+  const [showNavigateButton, setShowNavigateButton] = useState(false);
+  const [sessionId] = useState('map-visitor-' + Date.now());
 
-  const [displayedText,
-  setDisplayedText] =
-  useState('');
+  // Initialize with cafe node coordinates — the robot's known home position.
+  const [initialPos, setInitialPos] = useState({ x: 50.0, y: 83.5 });
 
-const [isTyping,
-  setIsTyping] =
-  useState(false);
+  // ─── THE FIX ───────────────────────────────────────────────
+  // Store instructions computed at path-draw time in a ref so
+  // sendNavigationRequest always sends EXACTLY what the map drew,
+  // even if initialPos changes between selection and button press.
+  const pendingInstructionsRef = useRef([]);
+  // ───────────────────────────────────────────────────────────
 
-  const [sessionId] = useState(
-    'map-visitor-' + Date.now()
-  );
+  const [mapImage, setMapImage] = useState('/images/museum-map.png');
 
-  /*
-    LOAD ROBOT POSITION
-    Falls back to hallway node
-  */
+  // ─────────────────────────────────────────────────────────────
+  // LOAD ROBOT POSITION
+  // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     async function loadPosition() {
       try {
-        const response =
-          await fetch(
-            '/api/robot-position'
-          );
+        const response = await fetch('/api/robot-position');
+        if (!response.ok) throw new Error();
+        const data = await response.json();
+        const robotPos = { x: data.x, y: data.y, heading: data.heading };
 
-        if (!response.ok) {
-          throw new Error();
-        }
-
-        const data =
-          await response.json();
-
-        const robotPos = {
-          x: data.x,
-          y: data.y
-        };
+        console.log('[loadPosition] Loaded robot position from API:', robotPos);
 
         setInitialPos(robotPos);
         setTargetPos(robotPos);
-
-        const nearest =
-          getNearestLocation(
-            robotPos.x,
-            robotPos.y
-          );
-
-        setInitialLocation(
-          nearest
-        );
-
-        setSelectedItem(
-          nearest
-        );
+        setCurrentHeading(data.heading ?? 0);
+        const nearest = getNearestLocation(robotPos.x, robotPos.y);
+        setInitialLocation(nearest);
+        setSelectedItem(nearest);
 
       } catch {
-        /*
-          FALLBACK ACCESSIBLE
-          HALLWAY POSITION
-        */
-        const accessible =
-          NAV_NODES.filter(
-            n =>
-              ![
-                'galleryA',
-                'galleryB',
-                'history',
-                'innovation',
-                'temp',
-                'archive'
-              ].includes(n.id)
-          );
+        console.warn('[loadPosition] API unavailable — falling back to Cafe position');
 
-        const randomNode =
-          accessible[
-            Math.floor(
-              Math.random() *
-              accessible.length
-            )
-          ];
+        const cafeLocation = LOCATIONS.find(l => l.id === 'cafe') ?? LOCATIONS[LOCATIONS.length - 1];
+        const cafeNode = NAV_NODES.find(n => n.id === (cafeLocation?.navNode ?? 'cafe_c'));
+        const fallback = cafeNode ? { x: cafeNode.x, y: cafeNode.y } : { x: 50.0, y: 83.5 };
 
-        const fallback = {
-          x: randomNode.x,
-          y: randomNode.y
-        };
+        console.log('[loadPosition] Fallback position:', fallback);
 
         setInitialPos(fallback);
         setTargetPos(fallback);
-
-        const nearest =
-          getNearestLocation(
-            fallback.x,
-            fallback.y
-          );
-
-        setInitialLocation(
-          nearest
-        );
-
-        setSelectedItem(
-          nearest
-        );
+        setInitialLocation(cafeLocation ?? null);
+        setSelectedItem(cafeLocation ?? null);
       }
     }
-
     loadPosition();
   }, []);
 
-  /*
-    SEARCH RESULTS
-  */
-  const visibleResults =
-    useMemo(() => {
-      const query =
-        searchQuery.trim();
-
-      if (!query) {
-        return [];
+  useEffect(() => {
+    async function loadMapImage() {
+      try {
+        const response = await fetch('/api/map-image');
+        const data = await response.json();
+        setMapImage(data.imageUrl);
+      } catch {
+        setMapImage('/images/museum-map.png');
       }
+    }
+    loadMapImage();
+  }, []);
 
-      return LOCATIONS
-        .filter(item =>
-          item.label
-            .toLowerCase()
-            .includes(
-              query.toLowerCase()
-            )
-        )
-        .slice(0, 5);
-    }, [searchQuery]);
+  // ─────────────────────────────────────────────────────────────
+  // SOCKET — live robot position updates
+  // ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const socket = io();
 
-  /*
-    SELECT DESTINATION
-  */
+    socket.on('connect', () => console.log('[Socket] Connected:', socket.id));
+    socket.on('connect_error', (e) => console.error('[Socket] Error:', e));
+
+    socket.on('robotPosition', ({ x, y, heading }) => {
+      console.log('[Socket] robotPosition update → x:', x, 'y:', y, 'heading:', heading);
+      setInitialPos({ x, y });
+      setCurrentHeading(heading ?? 0);
+      const nearest = getNearestLocation(x, y);
+      setInitialLocation(nearest);
+    });
+
+    return () => socket.disconnect();
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────
+  // SEARCH RESULTS
+  // ─────────────────────────────────────────────────────────────
+  const visibleResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return LOCATIONS;
+    return LOCATIONS.filter(item =>
+      (item.label ?? item.name ?? '').toLowerCase().includes(query)
+    );
+  }, [searchQuery]);
+
+  // ─────────────────────────────────────────────────────────────
+  // SELECT DESTINATION
+  // Computes path + instructions and stores them in the ref.
+  // sendNavigationRequest reads from the ref — no recomputation.
+  // ─────────────────────────────────────────────────────────────
   const selectMapItem = item => {
     setSelectedItem(item);
-    setClickTarget(null); // clear any free-click pin when a named destination is chosen
+    setClickTarget(null);
+    setShowNavigateButton(true);
 
-    const target = {
-      x: item.center.x,
-      y: item.center.y
-    };
-
+    const target = { x: item.center.x, y: item.center.y };
     setTargetPos(target);
 
-    const { path } = findPath(initialPos, target);
-    setRoutePath(path);
+    const targetNavNode = item.navNode ? NAV_NODES.find(n => n.id === item.navNode) : null;
+    const snappedTarget = targetNavNode ? { x: targetNavNode.x, y: targetNavNode.y } : target;
 
+    console.group('📍 [selectMapItem]');
+    console.log('  item            :', item.label ?? item.id);
+    console.log('  initialPos NOW  :', initialPos);
+    console.log('  currentHeading  :', currentHeading, '°');
+    console.log('  snappedTarget   :', snappedTarget);
+
+    const { path } = findPath(initialPos, snappedTarget);
+    const instructions = pathToInstructions(path, currentHeading);
+
+    console.log('  path nodes      :', path.map(n => n.id).join(' → '));
+    console.log('  path length     :', path.length, 'nodes');
+    console.log('  instruction cnt :', instructions.length);
+    console.log('  instructions    :\n' + instructionsToString(instructions));
+    console.groupEnd();
+
+    // ← Store in ref so Navigate button uses the SAME instructions
+    pendingInstructionsRef.current = instructions;
+    console.log('[selectMapItem] ✅ pendingInstructionsRef updated, steps:', instructions.length);
+
+    setRoutePath(path);
     setSearchQuery('');
 
-    setChatResponse(
-      `${item.label} is selected. ${item.info}`
-    );
-  
+    const label = item.label ?? item.name ?? 'Destination';
+    const info = item.info ?? item.type ?? `Navigating to ${label}.`;
+    setChatResponse(`${label} is selected. ${info}`);
   };
 
-  /*
-    MAP CLICK → PATHFIND TO ARBITRARY POINT
-  */
+  // ─────────────────────────────────────────────────────────────
+  // SEND NAVIGATION REQUEST
+  // Reads from pendingInstructionsRef — never recomputes the path.
+  // ─────────────────────────────────────────────────────────────
+  async function sendNavigationRequest(item) {
+    const instructions = pendingInstructionsRef.current;
+
+    console.group('🚀 [sendNavigationRequest]');
+    console.log('  destination     :', item?.label);
+    console.log('  instructions ref steps:', instructions.length);
+    console.log('  instructions    :\n' + instructionsToString(instructions));
+
+    if (instructions.length === 0) {
+      console.warn('  ⚠️  pendingInstructionsRef is EMPTY — was selectMapItem called first?');
+    }
+
+    console.groupEnd();
+
+    try {
+      await fetch('/api/navigate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          destination: item?.label,
+          coordinates: {
+            x: item?.center?.x ?? targetPos.x,
+            y: item?.center?.y ?? targetPos.y
+          },
+          source: 'map-ui',
+          instructions   // ← always the ref value, never recomputed
+        })
+      });
+    } catch (err) {
+      console.error('[sendNavigationRequest] Navigation failed:', err);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // MAP CLICK — arbitrary destination
+  // Also stores instructions in the ref so click-navigate is consistent.
+  // ─────────────────────────────────────────────────────────────
   const handleMapClick = (event) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    const px = event.clientX - rect.left;
-    const py = event.clientY - rect.top;
+    const x = ((event.clientX - rect.left) / rect.width) * 100;
+    const y = ((event.clientY - rect.top) / rect.height) * 100;
 
-    // Convert pixel position → map percentage coordinates (0–100)
-    const x = (px / rect.width)  * 100;
-    const y = (py / rect.height) * 100;
+    // SET INITIAL POSITION MODE
+    if (isSettingInitialPosition) {
+      let nearestNode = NAV_NODES[0];
+      let bestDist = Infinity;
+      for (const node of NAV_NODES) {
+        const dx = node.x - x, dy = node.y - y;
+        const d = dx * dx + dy * dy;
+        if (d < bestDist) { bestDist = d; nearestNode = node; }
+      }
+      const snappedPos = { x: nearestNode.x, y: nearestNode.y };
+      console.log('[handleMapClick] Set initial position →', snappedPos);
+      setInitialPos(snappedPos);
+      const nearestLocation = getNearestLocation(snappedPos.x, snappedPos.y);
+      setInitialLocation(nearestLocation);
+      setIsSettingInitialPosition(false);
+      setChatResponse(`Initial position set near ${nearestLocation.label}.`);
+      return;
+    }
 
+    // NORMAL DESTINATION CLICK
     const target = { x, y };
     setClickTarget(target);
     setTargetPos(target);
 
-    const { path, totalDistance } = findPath(initialPos, target);
+    console.group('🖱️  [handleMapClick] Normal destination click');
+    console.log('  clickTarget     :', target);
+    console.log('  initialPos NOW  :', initialPos);
+    console.log('  currentHeading  :', currentHeading, '°');
+
+    const { path } = findPath(initialPos, target);
+    const instructions = pathToInstructions(path, currentHeading);
+
+    console.log('  path nodes      :', path.map(n => n.id).join(' → '));
+    console.log('  path length     :', path.length, 'nodes');
+    console.log('  instruction cnt :', instructions.length);
+    console.log('  instructions    :\n' + instructionsToString(instructions));
+    console.groupEnd();
+
+    // ← Store in ref so Navigate button uses the SAME instructions
+    pendingInstructionsRef.current = instructions;
+    console.log('[handleMapClick] ✅ pendingInstructionsRef updated, steps:', instructions.length);
+
     setRoutePath(path);
 
-    // Identify the nearest named location for the info panel
     const nearest = getNearestLocation(x, y);
-    setSelectedItem({
-      ...nearest,
-      label: nearest.label,
-      info: `Navigating to a point near ${nearest.label}. Distance: ${totalDistance.toFixed(1)} units.`
-    });
+    const label = nearest.label ?? nearest.name ?? 'Nearby location';
+
+    setSelectedItem({ ...nearest, label, info: `Navigating to a point near ${label}.` });
+    setShowNavigateButton(true);
   };
 
-  /*
-    SEARCH SUBMIT
-  */
-  const handleSearchSubmit =
-    () => {
-      const query =
-        searchQuery
-          .trim()
-          .toLowerCase();
+  // ─────────────────────────────────────────────────────────────
+  // SEARCH SUBMIT
+  // ─────────────────────────────────────────────────────────────
+  const handleSearchSubmit = () => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return;
+    const match = LOCATIONS.find(item => item.label.toLowerCase().includes(query));
+    if (match) { selectMapItem(match); return; }
+    setChatResponse(strings.noSearchMatch);
+  };
 
-      if (!query) return;
-
-      const match =
-        LOCATIONS.find(
-          item =>
-            item.label
-              .toLowerCase()
-              .includes(query)
-        );
-
-      if (match) {
-        selectMapItem(match);
-        return;
-      }
-
-      setChatResponse(
-        strings.noSearchMatch
-      );
-    };
-
-async function typeResponse(
-  text
-) {
-  setIsTyping(true);
-  setDisplayedText('');
-
-  let current = '';
-
-  const speed = 16;
-
-  for (let i = 0; i < text.length; i++) {
-    current += text[i];
-
-    setDisplayedText(
-      current
-    );
-
-    await new Promise(
-      resolve =>
-        setTimeout(
-          resolve,
-          speed
-        )
-    );
+  async function typeResponse(text) {
+    setIsTyping(true);
+    setDisplayedText('');
+    let current = '';
+    for (let i = 0; i < text.length; i++) {
+      current += text[i];
+      setDisplayedText(current);
+      await new Promise(resolve => setTimeout(resolve, 16));
+    }
+    setIsTyping(false);
   }
 
-await typeResponse(
-  data.text
-);
+  // ─────────────────────────────────────────────────────────────
+  // CHAT ASK
+  // ─────────────────────────────────────────────────────────────
+  const handleChatAsk = async () => {
+    const question = chatQuery.trim();
+    if (!question) return;
+    setChatBusy(true);
 
-  setIsTyping(false);
+    try {
+      const mapData = {
+        currentPosition: initialPos,
+        currentLocation: initialLocation?.label,
+        targetPosition: targetPos,
+        targetLocation: selectedItem?.label,
+        locations: LOCATIONS.map(l => ({ label: l.label, center: l.center }))
+      };
 
-}
+      const response = await fetch('/api/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
+        body: JSON.stringify({ question, language, visitorType: 'map-navigation', mapContext: mapData })
+      });
 
-  const handleChatAsk =
-    async () => {
-      const question =
-        chatQuery.trim();
+      const data = await response.json();
+      let responseText = data.text || strings.mapChatFallback;
 
-      if (!question) {
-        return;
+      if (responseText.startsWith('[NAVIGATION]')) {
+        responseText = responseText.replace('[NAVIGATION]', '').trim();
+        const searchIn = (question + ' ' + responseText).toLowerCase();
+        const match = LOCATIONS.find(location => searchIn.includes(location.label.toLowerCase()));
+
+        if (match) {
+          console.log('[handleChatAsk] Navigation match found:', match.label);
+          // selectMapItem writes to pendingInstructionsRef synchronously,
+          // then sendNavigationRequest reads from it — always consistent.
+          selectMapItem(match);
+          await sendNavigationRequest(match);
+        }
       }
 
-      setChatBusy(true);
+      setChatResponse(responseText);
+    } catch (err) {
+      console.error('[handleChatAsk] Error:', err);
+      setChatResponse(strings.mapChatFallback);
+    } finally {
+      setChatBusy(false);
+    }
 
-      try {
-        const mapData = {
-          currentPosition:
-            initialPos,
+    setChatQuery('');
+  };
 
-          currentLocation:
-            initialLocation
-              ?.label,
-
-          targetPosition:
-            targetPos,
-
-          targetLocation:
-            selectedItem
-              ?.label,
-
-          locations:
-            LOCATIONS.map(
-              l => ({
-                label:
-                  l.label,
-                center:
-                  l.center
-              })
-            )
-        };
-
-        const response =
-          await fetch(
-            '/api/ask',
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type':
-                  'application/json',
-                'x-session-id':
-                  sessionId
-              },
-              body:
-                JSON.stringify({
-                  question,
-                  language,
-                  visitorType:
-                    'map-navigation',
-                  mapContext:
-                    mapData
-                })
-            }
-          );
-
-        const data =
-          await response.json();
-
-        setChatResponse(
-          data.text ||
-          strings
-            .mapChatFallback
-        );
-
-      } catch (err) {
-        console.error(err);
-
-        setChatResponse(
-          strings
-            .mapChatFallback
-        );
-      } finally {
-        setChatBusy(false);
-      }
-
-      setChatQuery('');
-    };
-
-  /*
-    LANGUAGE
-  */
   function handleLanguage(nextLang) {
-    const next = nextLang
-      ? { value: nextLang }
-      : getNextLanguage(language);
-
+    const next = nextLang ? { value: nextLang } : getNextLanguage(language);
     switchLanguage(next.value);
-
     const msg = languageChangedMessage(next.value);
     speak(msg, next.value);
   }
-function toggleFullscreen() {
-  const elem =
-    document.querySelector(
-      '.map-frame'
-    );
 
-  if (!document.fullscreenElement) {
-    elem?.requestFullscreen();
-
-    setIsFullscreen(
-      true
-    );
-  } else {
-    document.exitFullscreen();
-
-    setIsFullscreen(
-      false
-    );
+  function toggleFullscreen() {
+    const elem = document.querySelector('.map-frame');
+    if (!document.fullscreenElement) {
+      elem?.requestFullscreen();
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen();
+      setIsFullscreen(false);
+    }
   }
-}
+
   return (
     <div className="map-page">
-      <Sidebar
-        onLanguage={handleLanguage}
-        language={language}
-      />
+      <Sidebar onLanguage={handleLanguage} language={language} />
 
       <main className="main-content">
         <section className="page-header">
@@ -457,16 +412,18 @@ function toggleFullscreen() {
               value={searchQuery}
               placeholder={strings.searchPlaceholderMap}
               onChange={(event) => setSearchQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') handleSearchSubmit();
-              }}
+              onKeyDown={(event) => { if (event.key === 'Enter') handleSearchSubmit(); }}
             />
             <button className="gold-btn" type="button" onClick={handleSearchSubmit}>
               {strings.searchBtn}
             </button>
           </div>
           {searchQuery && visibleResults.length > 0 && (
-            <div className="search-suggestions">
+            <div className="search-suggestions" style={{
+              maxHeight: '280px', overflowY: 'auto', marginTop: '12px', borderRadius: '20px',
+              background: 'rgba(255,255,255,.94)', backdropFilter: 'blur(16px)',
+              boxShadow: '0 10px 40px rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.05)'
+            }}>
               {visibleResults.map((item) => (
                 <button key={item.label} type="button" onClick={() => selectMapItem(item)}>
                   <span>{item.label}</span>
@@ -479,206 +436,143 @@ function toggleFullscreen() {
 
         <section className="map-grid">
           <div className="map-visual">
-            <div className="map-frame">
-<div className="map-frame" onClick={handleMapClick} style={{ cursor: 'crosshair' }}>
-  <img
-    src="/images/museum-map.png"
-    alt={strings.mapAlt}
-  />
-<button
-  onClick={
-    toggleFullscreen
-  }
-  style={{
-    position:
-      'absolute',
-    top: 18,
-    right: 18,
-    zIndex: 10,
-    border: 'none',
-    borderRadius: 16,
-    padding:
-      '10px 16px',
-    background:
-      'rgba(255,255,255,.9)',
-    boxShadow:
-      '0 6px 18px rgba(0,0,0,.12)',
-    cursor:
-      'pointer',
-    fontWeight: 700
-  }}
->
-  {isFullscreen
-    ? 'Exit Fullscreen'
-    : 'Fullscreen'}
-</button>
-  {/* ROUTE SVG */}
-  <svg
-    className="map-route-line"
-    style={{
-      position: 'absolute',
-      inset: 0,
-      width: '100%',
-      height: '100%',
-      overflow: 'visible'
-    }}
-    viewBox="0 0 100 100"
-    preserveAspectRatio="none"
-  >
-    {/* Animated route */}
-    {routePath.length > 1 && (
-      <>
-        <defs>
-          <filter id="routeGlow">
-            <feGaussianBlur
-              stdDeviation="0.4"
-              result="coloredBlur"
-            />
-            <feMerge>
-              <feMergeNode in="coloredBlur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-
-        {/* Glow path */}
-        <polyline
-          points={routePath
-            .map(
-              p => `${p.x},${p.y}`
-            )
-            .join(' ')}
-          fill="none"
-          stroke="rgba(215,126,46,.22)"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          filter="url(#routeGlow)"
-        />
-
-        {/* Main path */}
-        <polyline
-          points={routePath
-            .map(
-              p => `${p.x},${p.y}`
-            )
-            .join(' ')}
-          fill="none"
-          stroke="#d77e2e"
-          strokeWidth="0.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeDasharray="120"
-          strokeDashoffset="120"
-          style={{
-            animation:
-              'drawRoute 1.6s ease forwards'
-          }}
-        />
-      </>
-    )}
-
-    {/* Destination pulse */}
-    {selectedItem && (
-      <circle
-        cx={targetPos.x}
-        cy={targetPos.y}
-        r="1.8"
-        fill="rgba(215,126,46,.15)"
-      >
-        <animate
-          attributeName="r"
-          values="1.5;3.2;1.5"
-          dur="1.8s"
-          repeatCount="indefinite"
-        />
-      </circle>
-    )}
-    {/* Click-destination X marker */}
-    {clickTarget && (
-      <g>
-        <circle
-          cx={clickTarget.x}
-          cy={clickTarget.y}
-          r="2.2"
-          fill="none"
-          stroke="#d77e2e"
-          strokeWidth="0.5"
-          opacity="0.5"
-        />
-        <line x1={clickTarget.x - 1.2} y1={clickTarget.y - 1.2} x2={clickTarget.x + 1.2} y2={clickTarget.y + 1.2} stroke="#d77e2e" strokeWidth="0.6" strokeLinecap="round" />
-        <line x1={clickTarget.x + 1.2} y1={clickTarget.y - 1.2} x2={clickTarget.x - 1.2} y2={clickTarget.y + 1.2} stroke="#d77e2e" strokeWidth="0.6" strokeLinecap="round" />
-      </g>
-    )}
-  </svg>
-
-  {/* DESTINATION PIN */}
-  {(clickTarget || selectedItem) && (
-    <div
-      className="map-pin"
-      style={{
-        left: `${(clickTarget ?? targetPos).x}%`,
-        top: `${(clickTarget ?? targetPos).y}%`,
-        zIndex: 4
-      }}
-    >
-      <div className="pin-ring" />
-      <div className="pin-dot" />
-    </div>
-  )}
-
-  {/* CURRENT POSITION */}
-  <div
-    className="map-pin map-start-pin"
-    style={{
-      left: `${initialPos.x}%`,
-      top: `${initialPos.y}%`,
-      zIndex: 5
-    }}
-  >
-    <div className="pin-ring start-ring" />
-    <div className="pin-dot start-dot" />
-  </div>
-
-  {/* LOCATION LABELS */}
-  {LOCATIONS.map(location => (
-    <div
-      key={location.label}
-      style={{
-        position: 'absolute',
-        left:
-          `${location.center.x}%`,
-        top:
-          `${location.center.y}%`,
-        transform:
-          'translate(-50%, -50%)',
-        pointerEvents: 'none',
-        fontSize: '0.8rem',
-        fontWeight: 600,
-        color:
-          'rgba(85,60,35,.8)',
-        background:
-          'rgba(255,255,255,.75)',
-        padding:
-          '4px 8px',
-        borderRadius:
-          '999px',
-        backdropFilter:
-          'blur(8px)',
-        border:
-          '1px solid rgba(180,140,90,.14)',
-        zIndex: 2
-      }}
-    >
-      {location.label}
-    </div>
-  ))}
-</div>
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+              <button
+                className="gold-btn"
+                type="button"
+                onClick={() => setIsSettingInitialPosition(v => !v)}
+                style={{ background: isSettingInitialPosition ? '#d77e2e' : undefined }}
+              >
+                {isSettingInitialPosition ? 'Click Map To Place Start' : 'Set Initial Position'}
+              </button>
             </div>
+
+            <div
+              className="map-frame"
+              onClick={(e) => { setActiveWaypoint(null); handleMapClick(e); }}
+              style={{ cursor: 'crosshair' }}
+            >
+              <img src={mapImage} alt={strings.mapAlt} />
+
+              <button onClick={toggleFullscreen} style={{
+                position: 'absolute', top: 18, right: 18, zIndex: 10, border: 'none',
+                borderRadius: 16, padding: '10px 16px', background: 'rgba(255,255,255,.9)',
+                boxShadow: '0 6px 18px rgba(0,0,0,.12)', cursor: 'pointer', fontWeight: 700
+              }}>
+                {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+              </button>
+
+              {/* ROUTE SVG */}
+              <svg
+                className="map-route-line"
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+              >
+                {routePath.length > 1 && (
+                  <>
+                    <defs>
+                      <filter id="routeGlow">
+                        <feGaussianBlur stdDeviation="0.4" result="coloredBlur" />
+                        <feMerge>
+                          <feMergeNode in="coloredBlur" />
+                          <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                      </filter>
+                    </defs>
+                    <path
+                      d={pathToSvgD(routePath.filter(p => p.id !== '__start__' && p.id !== '__goal__'))}
+                      fill="none" stroke="rgba(215,126,46,.22)" strokeWidth="2.2"
+                      strokeLinecap="round" strokeLinejoin="round" filter="url(#routeGlow)"
+                    />
+                    <path
+                      d={pathToSvgD(routePath.filter(p => p.id !== '__start__' && p.id !== '__goal__'))}
+                      fill="none" stroke="#d77e2e" strokeWidth="0.75"
+                      strokeLinecap="round" strokeLinejoin="round"
+                    />
+                  </>
+                )}
+
+                {selectedItem && (
+                  <circle cx={targetPos.x} cy={targetPos.y} r="1.8" fill="rgba(215,126,46,.15)">
+                    <animate attributeName="r" values="1.5;3.2;1.5" dur="1.8s" repeatCount="indefinite" />
+                  </circle>
+                )}
+
+                {clickTarget && (
+                  <g>
+                    <circle cx={clickTarget.x} cy={clickTarget.y} r="2.2" fill="none" stroke="#d77e2e" strokeWidth="0.5" opacity="0.5" />
+                    <line x1={clickTarget.x - 1.2} y1={clickTarget.y - 1.2} x2={clickTarget.x + 1.2} y2={clickTarget.y + 1.2} stroke="#d77e2e" strokeWidth="0.6" strokeLinecap="round" />
+                    <line x1={clickTarget.x + 1.2} y1={clickTarget.y - 1.2} x2={clickTarget.x - 1.2} y2={clickTarget.y + 1.2} stroke="#d77e2e" strokeWidth="0.6" strokeLinecap="round" />
+                  </g>
+                )}
+              </svg>
+
+              {/* DESTINATION PIN */}
+              {(clickTarget || selectedItem) && (
+                <div className="map-pin" style={{ left: `${(clickTarget ?? targetPos).x}%`, top: `${(clickTarget ?? targetPos).y}%`, zIndex: 4 }}>
+                  <div className="pin-ring" />
+                  <div className="pin-dot" />
+                </div>
+              )}
+
+              {/* CURRENT POSITION */}
+              <div className="map-pin map-start-pin" style={{ left: `${initialPos.x}%`, top: `${initialPos.y}%`, zIndex: 5 }}>
+                <div className="pin-ring start-ring" />
+                <div className="pin-dot start-dot" />
+              </div>
+
+              {/* LOCATION WAYPOINTS */}
+              {LOCATIONS.map(location => {
+                const isArtifact = ['Artifact', 'Exhibit', 'Archive', 'Interactive'].includes(location.type);
+                const isService = ['Service', 'Cafe'].includes(location.type);
+                const isActive = activeWaypoint === location.id;
+                const x = Math.min(97, Math.max(3, location.center.x));
+                const y = Math.min(97, Math.max(3, location.center.y));
+
+                return (
+                  <div key={location.id} style={{
+                    position: 'absolute', left: `${x}%`, top: `${y}%`,
+                    transform: 'translate(-50%, -50%)', zIndex: isActive ? 20 : 6
+                  }}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isActive) { selectMapItem(location); return; }
+                        setActiveWaypoint(location.id);
+                      }}
+                      style={{
+                        width: isArtifact ? '10px' : '9px', height: isArtifact ? '10px' : '9px',
+                        borderRadius: '999px', border: '2px solid white',
+                        background: isArtifact ? '#b7854d' : isService ? '#4d7bb7' : '#8b6b43',
+                        boxShadow: isActive ? '0 0 0 6px rgba(183,133,77,.18)' : '0 2px 8px rgba(0,0,0,.18)',
+                        cursor: 'pointer', transition: 'all .16s ease', padding: 0
+                      }}
+                    />
+                    {isActive && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); selectMapItem(location); }}
+                        style={{
+                          position: 'absolute', top: '18px', left: '50%', transform: 'translateX(-50%)',
+                          background: 'rgba(255,255,255,.96)', padding: '7px 12px', borderRadius: '999px',
+                          whiteSpace: 'nowrap', fontSize: '0.74rem', fontWeight: 700, color: '#553c23',
+                          boxShadow: '0 4px 14px rgba(0,0,0,.12)', border: '1px solid rgba(180,140,90,.16)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {location.label}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
             <div className="map-badge">
               <strong>{strings.youAreHere}</strong>
               <span>{strings.nearbyLabel} {initialLocation?.label}</span>
             </div>
+
             <div className="map-chat-card">
               <div className="chat-hint">{strings.chatIntro}</div>
               <div className="chat-input-group">
@@ -687,9 +581,7 @@ function toggleFullscreen() {
                   value={chatQuery}
                   placeholder={strings.chatPrompt}
                   onChange={(event) => setChatQuery(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') handleChatAsk();
-                  }}
+                  onKeyDown={(event) => { if (event.key === 'Enter') handleChatAsk(); }}
                 />
                 <button className="gold-btn" type="button" onClick={handleChatAsk}>
                   {strings.chatAskBtn}
@@ -706,6 +598,23 @@ function toggleFullscreen() {
             <h2>{selectedItem?.label || strings.infoTitle}</h2>
             <p>{selectedItem?.info || strings.infoDesc}</p>
 
+            {selectedItem && (
+              <button
+                className="gold-btn"
+                type="button"
+                onClick={() => sendNavigationRequest(selectedItem)}
+                style={{
+                  marginTop: '18px', width: '100%', borderRadius: '18px',
+                  padding: '14px 18px', fontSize: '1rem', fontWeight: 700,
+                  display: 'flex', justifyContent: 'center', alignItems: 'center',
+                  gap: '10px', boxShadow: '0 8px 26px rgba(215,126,46,.22)',
+                  transform: 'translateY(0)', transition: 'all .25s ease'
+                }}
+              >
+                Navigate To <span>{selectedItem.label}</span>
+              </button>
+            )}
+
             <div className="info-stat-grid">
               <div>
                 <span>{strings.locationLabel}</span>
@@ -716,8 +625,6 @@ function toggleFullscreen() {
                 <strong>{strings.routeHint}</strong>
               </div>
             </div>
-
-
           </aside>
         </section>
 
