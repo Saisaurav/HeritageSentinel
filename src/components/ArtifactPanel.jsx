@@ -1,16 +1,46 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { t } from '../utils/translations';
 import { speak, stopSpeaking } from '../utils/speak';
 
+import {
+  startVoiceRecognition,
+  onVoiceReply
+} from '../utils/speechRecognition';
+
+import { useVoiceWS } from '../utils/useVoiceWS.js';
+
+import { db } from "../firebaseConfig";
+
+import {
+  doc,
+  getDoc
+} from "firebase/firestore";
+
 const CloseIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="22"
+    height="22"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
     <path d="M18 6L6 18" />
     <path d="M6 6l12 12" />
   </svg>
 );
 
 const MicrophoneIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="22"
+    height="22"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
     <rect x="9" y="2" width="6" height="12" rx="3" />
     <path d="M5 10a7 7 0 0 0 14 0" />
     <path d="M12 17v4" />
@@ -18,76 +48,230 @@ const MicrophoneIcon = () => (
   </svg>
 );
 
-export default function ArtifactPanel({ artifact, onClose, language }) {
-  const lang = language || localStorage.getItem('language') || 'en-US';
-  const strings = t[lang] || t['en-US'];
+export default function ArtifactPanel({
+  artifact,
+  onClose,
+  language
+}) {
+  const lang =
+    language ||
+    localStorage.getItem('language') ||
+    'en-US';
 
-  const [aiText, setAiText] = useState(strings.pressExplain);
-  const [typedQuestion, setTypedQuestion] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [chatLoading, setChatLoading] = useState(false);
-  const [hasExplained, setHasExplained] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const strings =
+    t[lang] ||
+    t['en-US'];
 
-  if (!artifact) return null;
+  const [aiText,
+    setAiText] =
+    useState(
+      strings.pressExplain
+    );
+
+  const [
+    typedQuestion,
+    setTypedQuestion
+  ] = useState('');
+
+  const [loading,
+    setLoading] =
+    useState(false);
+
+  const [
+    chatLoading,
+    setChatLoading
+  ] = useState(false);
+
+  const [
+    hasExplained,
+    setHasExplained
+  ] = useState(false);
+
+  const [
+    isExpanded,
+    setIsExpanded
+  ] = useState(false);
+
+  const { wsRef, wsReady } = useVoiceWS();
+
+  const voiceSessionRef = useRef(null);
+
+  const [voiceStatus, setVoiceStatus] =
+    useState('idle');
+
+  if (!artifact) {
+    return null;
+  }
 
   async function explainArtifact() {
     setLoading(true);
-    setAiText(strings.analyzingMsg);
+    setAiText(
+      strings.analyzingMsg
+    );
 
     try {
-      const response = await fetch('/api/explain-artifact', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ artifact, language: lang })
-      });
+      const response =
+        await fetch(
+          '/api/explain-artifact',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type':
+                'application/json'
+            },
 
-      const data = await response.json();
-      setAiText(data.text);
+            body:
+              JSON.stringify({
+                artifact,
+                language: lang
+              })
+          }
+        );
+
+      const data =
+        await response.json();
+
+      setAiText(
+        data.text
+      );
+
       setHasExplained(true);
       setIsExpanded(true);
-      speak(data.text, lang);
+
+      speak(
+        data.text,
+        lang
+      );
+
     } catch (err) {
       console.error(err);
-      setAiText(strings.explainError);
+
+      setAiText(
+        strings.explainError
+      );
     }
 
     setLoading(false);
   }
 
-  async function askMuse(question) {
-    if (!question.trim()) return;
-    if (!hasExplained) {
-      setAiText(strings.chatDisabled);
+  async function askMuse(
+    question,
+    artifactId
+  ) {
+    if (
+      !question.trim()
+    ) return;
+
+    if (
+      !hasExplained
+    ) {
+      setAiText(
+        strings.chatDisabled
+      );
       return;
     }
 
     try {
       setChatLoading(true);
-      setAiText(strings.thinking);
+      setAiText(
+        strings.thinking
+      );
 
-      const response = await fetch('/api/ask', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, language: lang })
-      });
+      let context =
+        '';
 
-      const data = await response.json();
-      setAiText(data.text || strings.unavailable);
-      speak(data.text, lang);
+      try {
+        const artifactRef =
+          doc(
+            db,
+            'artifacts',
+            artifactId
+          );
+
+        const artifactSnap =
+          await getDoc(
+            artifactRef
+          );
+
+        if (
+          artifactSnap.exists()
+        ) {
+          context =
+            artifactSnap.data()
+              .context ||
+            '';
+        }
+
+      } catch (firebaseErr) {
+        console.error(
+          'Context fetch failed:',
+          firebaseErr
+        );
+      }
+
+      const response =
+        await fetch(
+          '/api/ask',
+          {
+            method: 'POST',
+
+            headers: {
+              'Content-Type':
+                'application/json'
+            },
+
+            body:
+              JSON.stringify({
+                question,
+                context,
+                language:
+                  lang
+              })
+          }
+        );
+
+      const data =
+        await response.json();
+
+      setAiText(
+        data.text ||
+        strings.unavailable
+      );
+
+      speak(
+        data.text,
+        lang
+      );
+
     } catch (err) {
       console.error(err);
-      setAiText(strings.unavailable);
+
+      setAiText(
+        strings.unavailable
+      );
     }
 
     setChatLoading(false);
   }
 
-  async function handleTypedAsk() {
-    if (!typedQuestion.trim()) return;
-    const q = typedQuestion;
-    setTypedQuestion('');
-    await askMuse(q);
+  async function handleTypedAsk(
+    artifactId
+  ) {
+    if (
+      !typedQuestion.trim()
+    ) return;
+
+    const q =
+      typedQuestion;
+
+    setTypedQuestion(
+      ''
+    );
+
+    await askMuse(
+      q,
+      artifactId
+    );
   }
 
   async function startListening() {
@@ -96,50 +280,154 @@ export default function ArtifactPanel({ artifact, onClose, language }) {
       return;
     }
 
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert('Speech Recognition unsupported.');
+    const ws = wsRef.current;
+
+    if (voiceStatus === 'recording') {
+      voiceSessionRef.current?.stop();
+
+      setVoiceStatus('processing');
+
+      setAiText(strings.thinking);
+
       return;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.lang = lang;
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    setAiText(strings.listening);
-    recognition.start();
+    if (!wsReady || voiceStatus === 'processing') {
+      setAiText('Voice service not connected.');
+      return;
+    }
 
-    recognition.onresult = async (event) => {
-      const text = event.results[0][0].transcript;
-      setAiText(`${strings.youAsked}: "${text}"`);
-      await askMuse(text);
-    };
-    recognition.onerror = () => setAiText(strings.voiceError);
+    const cleanup = onVoiceReply(ws, {
+      onUserText: (raw) => {
+        setAiText(`${strings.youAsked}: "${raw}"`);
+      },
+
+      onResult: async (aiText) => {
+        cleanup();
+
+        setVoiceStatus('idle');
+
+        setAiText(aiText);
+
+        speak(aiText, lang);
+      },
+
+      onError: (err) => {
+        cleanup();
+
+        console.error(err);
+
+        setVoiceStatus('idle');
+
+        setAiText(strings.voiceError);
+      },
+    });
+
+    voiceSessionRef.current = startVoiceRecognition({
+      lang,
+      ws,
+
+      onStop: () => {
+        setVoiceStatus('processing');
+      },
+
+      onError: (err) => {
+        cleanup();
+
+        console.error(err);
+
+        setVoiceStatus('idle');
+
+        setAiText(strings.voiceError);
+      },
+    });
+
+    setVoiceStatus('recording');
+
+    setAiText(strings.listening);
   }
 
   function listenToArtifact() {
-    speak(`${artifact.name}. ${artifact.description}. ${aiText}`, lang);
+    speak(
+      `${artifact.name}. ${artifact.description}. ${aiText}`,
+      lang
+    );
   }
 
   return (
     <div className="artifact-panel">
-      <div className="panel-overlay" onClick={onClose} />
+      <div
+        className="panel-overlay"
+        onClick={onClose}
+      />
 
       <div className="panel-inner">
-        <button className="close-panel-btn" onClick={onClose}>
+
+        <button
+          className="close-panel-btn"
+          onClick={onClose}
+        >
           <CloseIcon />
         </button>
 
         <div className="artifact-hero">
-          <img className="panel-image" src={artifact.image} alt={artifact.name} />
+          <img
+            className="panel-image"
+            src={artifact.image}
+            alt={
+              artifact.name
+            }
+          />
+
           <div className="image-overlay">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div className="panel-category">{artifact.category}</div>
-              <div style={{ color: 'white' }}>
-                <div style={{ fontSize: '.95rem', opacity: .9 }}>{strings.museumExhibit}</div>
-                <div style={{ fontSize: '1.8rem', fontWeight: '700', fontFamily: 'Cinzel, serif' }}>
-                  {artifact.name}
+            <div
+              style={{
+                display:
+                  'flex',
+                flexDirection:
+                  'column',
+                gap:
+                  '12px'
+              }}
+            >
+              <div className="panel-category">
+                {
+                  artifact.category
+                }
+              </div>
+
+              <div
+                style={{
+                  color:
+                    'white'
+                }}
+              >
+                <div
+                  style={{
+                    fontSize:
+                      '.95rem',
+                    opacity:
+                      .9
+                  }}
+                >
+                  {
+                    strings.museumExhibit
+                  }
+                </div>
+
+                <div
+                  style={{
+                    fontSize:
+                      '1.8rem',
+                    fontWeight:
+                      '700',
+                    fontFamily:
+                      'Cinzel, serif'
+                  }}
+                >
+                  {
+                    artifact.name
+                  }
                 </div>
               </div>
             </div>
@@ -147,104 +435,218 @@ export default function ArtifactPanel({ artifact, onClose, language }) {
         </div>
 
         <div className="panel-content">
+
           <div className="title-row">
             <div>
-              <h2>{artifact.name}</h2>
-              <p className="panel-era">{artifact.era}</p>
+              <h2>
+                {
+                  artifact.name
+                }
+              </h2>
+
+              <p className="panel-era">
+                {
+                  artifact.era
+                }
+              </p>
             </div>
           </div>
 
           <div className="museum-divider" />
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '28px' }}>
-            <div style={{ background: 'rgba(255,255,255,.35)', padding: '18px', borderRadius: '22px' }}>
-              <div style={{ color: 'var(--muted)', fontSize: '.9rem', marginBottom: '8px' }}>
-                {strings.categoryLabel}
-              </div>
-              <strong>{artifact.category}</strong>
-            </div>
-            <div style={{ background: 'rgba(255,255,255,.35)', padding: '18px', borderRadius: '22px' }}>
-              <div style={{ color: 'var(--muted)', fontSize: '.9rem', marginBottom: '8px' }}>
-                {strings.eraLabel}
-              </div>
-              <strong>{artifact.era}</strong>
-            </div>
-          </div>
-
           <div className="info-section">
-            <h3>{strings.historicalContext}</h3>
-            <p className="panel-description">{artifact.description}</p>
+            <h3>
+              {
+                strings.historicalContext
+              }
+            </h3>
+
+            <p className="panel-description">
+              {
+                artifact.description
+              }
+            </p>
           </div>
 
-          <div className={`ai-box${isExpanded ? '' : ' collapsed'}`}>
+          <div
+            className="ai-box"
+            style={{
+              overflow: 'visible',
+              position: 'relative',
+              zIndex: 2
+            }}
+          >
             <div className="ai-header">
               <div>
-                <h3>{strings.museInsight}</h3>
-                <p>{strings.aiExplanation}</p>
+                <h3>
+                  {
+                    strings.museInsight
+                  }
+                </h3>
+
+                <p>
+                  {
+                    strings.aiExplanation
+                  }
+                </p>
               </div>
+
               <button
                 className="ai-toggle"
                 type="button"
-                onClick={() => setIsExpanded((prev) => !prev)}
+                onClick={() =>
+                  setIsExpanded(
+                    prev =>
+                      !prev
+                  )
+                }
               >
-                {isExpanded ? strings.collapseInsight : strings.expandInsight}
+                {isExpanded
+                  ? strings.collapseInsight
+                  : strings.expandInsight}
               </button>
             </div>
-            <p className="ai-text" style={{ lineHeight: '1.9', color: '#4b3d2e' }}>
-              {isExpanded ? aiText : ''}
-            </p>
 
             {isExpanded && (
               <>
-                <div className="question-input chat-input" style={{ marginTop: '24px' }}>
+                <p
+                  className="ai-text"
+                  style={{
+                    lineHeight:
+                      '1.9',
+                    color:
+                      '#4b3d2e'
+                  }}
+                >
+                  {aiText}
+                </p>
+
+                <div
+                  className="question-input chat-input"
+                  style={{
+                    marginTop:
+                      '24px',
+                    position:
+                      'relative',
+                    zIndex:
+                      9999,
+                    pointerEvents:
+                      'auto'
+                  }}
+                >
                   <input
                     type="text"
-                    placeholder={strings.askQuestion}
-                    value={typedQuestion}
-                    onChange={(e) => setTypedQuestion(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleTypedAsk()}
-                    disabled={!hasExplained}
-                    style={{ opacity: hasExplained ? 1 : .65 }}
+                    placeholder={
+                      strings.askQuestion
+                    }
+                    value={
+                      typedQuestion
+                    }
+                    onChange={e =>
+                      setTypedQuestion(
+                        e.target.value
+                      )
+                    }
+                    onKeyDown={e =>
+                      e.key ===
+                        'Enter' &&
+                      handleTypedAsk(
+                        artifact.id
+                      )
+                    }
+                    disabled={
+                      !hasExplained
+                    }
                   />
+
                   <button
                     className="gold-btn"
-                    onClick={handleTypedAsk}
-                    disabled={!hasExplained || !typedQuestion.trim() || chatLoading}
+                    onClick={() =>
+                      handleTypedAsk(
+                        artifact.id
+                      )
+                    }
+                    disabled={
+                      !hasExplained ||
+                      !typedQuestion.trim() ||
+                      chatLoading
+                    }
                   >
-                    {strings.askBtn}
+                    {
+                      strings.askBtn
+                    }
                   </button>
+
                   <button
                     className="glass-btn"
-                    onClick={startListening}
-                    disabled={!hasExplained}
-                    style={{ opacity: hasExplained ? 1 : .65 }}
+                    onClick={
+                      startListening
+                    }
+                    disabled={
+                      !hasExplained ||
+                      (!wsReady &&
+                        voiceStatus ===
+                          'idle')
+                    }
+                    style={
+                      voiceStatus ===
+                      'recording'
+                        ? {
+                            borderColor:
+                              '#e53935',
+                            color:
+                              '#e53935'
+                          }
+                        : {}
+                    }
                   >
-                    <MicrophoneIcon />
+                    {
+                      voiceStatus ===
+                      'recording'
+                        ? '●'
+                        : voiceStatus ===
+                          'processing'
+                        ? '...'
+                        : <MicrophoneIcon />
+                    }
                   </button>
                 </div>
-
-
               </>
             )}
           </div>
 
           <div className="panel-buttons">
-            <button className="gold-btn" onClick={explainArtifact}
-              style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span className="material-symbols-rounded">auto_awesome</span>
-              {strings.explainBtn}
+            <button
+              className="gold-btn"
+              onClick={
+                explainArtifact
+              }
+            >
+              {
+                strings.explainBtn
+              }
             </button>
 
-            <button className="glass-btn" onClick={listenToArtifact}
-              style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span className="material-symbols-rounded">volume_up</span>
-              {strings.listenBtn}
+            <button
+              className="glass-btn"
+              onClick={
+                listenToArtifact
+              }
+            >
+              {
+                strings.listenBtn
+              }
             </button>
 
-            <button className="glass-btn" onClick={stopSpeaking}
-              style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span className="material-symbols-rounded">stop_circle</span>
-              {strings.stopBtn}
+            <button
+              className="glass-btn"
+              onClick={
+                stopSpeaking
+              }
+            >
+              {
+                strings.stopBtn
+              }
             </button>
           </div>
         </div>

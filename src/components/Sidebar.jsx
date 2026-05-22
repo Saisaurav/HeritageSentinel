@@ -51,8 +51,56 @@ const MapIcon = () => (
     <circle cx="12" cy="12" r="3"/>
   </svg>
 );
+const SettingsIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="22"
+    height="22"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <circle
+      cx="12"
+      cy="12"
+      r="3"
+    />
 
-export default function Sidebar({ onAskMuse, onTour, onLanguage, language }) {
+    <path d="M19.4 15a1.7 1.7 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.82-.33 1.7 1.7 0 0 0-1 1.54V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.54 1.7 1.7 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .33-1.82 1.7 1.7 0 0 0-1.54-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.54-1 1.7 1.7 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.82.33h.01A1.7 1.7 0 0 0 10 3.09V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.54h.01a1.7 1.7 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.33 1.82v.01a1.7 1.7 0 0 0 1.54 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.54 1z" />
+  </svg>
+);
+
+const DevIcon = () => (
+       <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="22"
+    height="22"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+        <polyline points="7 8 3 12 7 16" />
+
+        <polyline points="17 8 21 12 17 16" />
+
+        <line x1="14" y1="4" x2="10" y2="20" />
+    </svg>
+
+)
+
+export default function Sidebar({
+  onAskMuse,
+  onTour,
+  onLanguage,
+  language,
+  hidden
+}) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -64,7 +112,7 @@ export default function Sidebar({ onAskMuse, onTour, onLanguage, language }) {
   const isMap = location.pathname === '/map';
 
   return (
-    <aside className="sidebar">
+  <aside className={`sidebar ${hidden ? 'hidden' : ''}`} style={{ overflow: 'auto', scrollbarGutter: 'stable', WebkitOverflowScrolling: 'touch', msOverflowStyle: 'none', scrollbarWidth: 'none' }}>
       <div className="logo-section">
         <h1>MUSE</h1>
         <p>Museum Assistant</p>
@@ -102,7 +150,11 @@ export default function Sidebar({ onAskMuse, onTour, onLanguage, language }) {
           </button>
         )}
 
-        
+        <button className="nav-btn" onClick={() => navigate('/settings')}>
+          <SettingsIcon />
+          <span>{strings.settings}</span>
+        </button>
+
         <div className="nav-btn language-switcher">
           <LangIcon />
           <div className="language-switch-body">
@@ -135,6 +187,12 @@ export default function Sidebar({ onAskMuse, onTour, onLanguage, language }) {
             </div>
           </div>
         </div>
+        {localStorage.getItem('devMode') === 'true' && (
+  <button className="nav-btn" onClick={() => navigate('/map-generator')}>
+    <DevIcon />
+    <span>Map Generator</span>
+  </button>
+)}
 
       </nav>
     </aside>

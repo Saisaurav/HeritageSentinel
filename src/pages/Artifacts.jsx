@@ -1,13 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Sidebar from '../components/Sidebar';
 import ArtifactPanel from '../components/ArtifactPanel';
 import { t } from '../utils/translations';
 import { speak } from '../utils/speak';
+import { stopSpeaking } from '../utils/speak';
 import { getNextLanguage, languageChangedMessage } from '../utils/language';
-import { startVoiceRecognition } from '../utils/speechRecognition';
 import { typeText } from '../utils/typingEffect';
 import { askMuse } from '../utils/api';
 
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "../firebaseConfig";
+import { COLLECTIONS, getArtifactsCollectionName } from '../services/firebaseService';
 
 export default function Artifacts({
   assistantText,
@@ -22,46 +25,57 @@ export default function Artifacts({
   const [category, setCategory] = useState('all');
   const [previewArtifact, setPreviewArtifact] = useState(null);
   const [selectedArtifact, setSelectedArtifact] = useState(null);
-  const [displayedText,
-    setDisplayedText] =
-    useState('');
+  const [displayedText, setDisplayedText] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
 
-  const [isTyping,
-    setIsTyping] =
-    useState(false);
-
+  const cancelTyping = useRef(false);
 
   useEffect(() => {
     async function fetchArtifacts() {
       try {
-        const response = await fetch('/artifacts.json');
-        const data = await response.json();
+        const collectionName = getArtifactsCollectionName();
+
+        const querySnapshot = await getDocs(
+          collection(db, collectionName)
+        );
+
+        const data = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          image: doc.data().img || doc.data().image
+        }));
+
         setArtifacts(data);
       } catch (err) {
-        console.error('Failed to load artifacts:', err);
+        console.error("Failed to load artifacts:", err);
       }
     }
+
     fetchArtifacts();
+
+    function handleCollectionChange() {
+      fetchArtifacts();
+    }
+
+    window.addEventListener('artifactsCollectionChanged', handleCollectionChange);
+
+    return () => {
+      window.removeEventListener('artifactsCollectionChanged', handleCollectionChange);
+    };
   }, []);
-useEffect(() => {
-  function handleClick() {
-    setPreviewArtifact(
-      null
-    );
-  }
 
-  document.addEventListener(
-    'click',
-    handleClick
-  );
+  useEffect(() => {
+    function handleClick() {
+      setPreviewArtifact(null);
+    }
 
-  return () => {
-    document.removeEventListener(
-      'click',
-      handleClick
-    );
-  };
-}, []);
+    document.addEventListener('click', handleClick);
+
+    return () => {
+      document.removeEventListener('click', handleClick);
+    };
+  }, []);
+
   function handleLanguage(nextLang) {
     const next = nextLang
       ? { value: nextLang }
@@ -74,33 +88,24 @@ useEffect(() => {
     speak(msg, next.value);
   }
 
-
-  async function startListening() {
-    startVoiceRecognition({
-      lang: language,
-      onResult: async text => {
-        setAssistantText(`${strings.youAsked}: "${text}"`);
-        await askMuseAndType(text);
-      },
-      onError: () => setAssistantText(strings.voiceError)
-    });
-
-    setAssistantText(strings.listening);
-  }
-
-
   async function typeResponse(text) {
+    cancelTyping.current = true;
+    await new Promise((r) => setTimeout(r, 0));
+    cancelTyping.current = false;
+
     setIsTyping(true);
+    speak(text, language);
     setDisplayedText('');
 
     await typeText({
       text,
       speed: 16,
+      cancelRef: cancelTyping,
       onTick: setDisplayedText,
-      onDone: finalText => {
+      onDone: (finalText) => {
         setAssistantText(finalText);
         setIsTyping(false);
-      }
+      },
     });
   }
 
@@ -110,106 +115,51 @@ useEffect(() => {
       setDisplayedText('');
 
       const data = await askMuse({ question, language });
-      const responseText = data.text || '';
-
-      speak(responseText, language);
-      await typeResponse(responseText);
+      await typeResponse(data.text || '');
     } catch (err) {
       console.error(err);
       setAssistantText(strings.unavailable);
     }
   }
 
+  const SEARCH_ALIASES = {
+    old: ['ancient', 'historic', 'history', 'artifact'],
+    history: ['historic', 'ancient', 'old'],
+    weapon: ['sword', 'shield', 'armor', 'battle'],
+    painting: ['art', 'portrait', 'canvas'],
+    pottery: ['pot', 'vase', 'ceramic'],
+    sculpture: ['statue', 'stone', 'carving'],
+    robot: ['technology', 'innovation', 'engineering'],
+    gold: ['golden', 'metal', 'treasure'],
+    ancient: ['old', 'historic', 'history']
+  };
 
-const SEARCH_ALIASES = {
-  old: ['ancient', 'historic', 'history', 'artifact'],
-  history: ['historic', 'ancient', 'old'],
-  weapon: ['sword', 'shield', 'armor', 'battle'],
-  painting: ['art', 'portrait', 'canvas'],
-  pottery: ['pot', 'vase', 'ceramic'],
-  sculpture: ['statue', 'stone', 'carving'],
-  robot: ['technology', 'innovation', 'engineering'],
-  gold: ['golden', 'metal', 'treasure'],
-  ancient: ['old', 'historic', 'history']
-};
+  const normalizedSearch = search.trim().toLowerCase();
 
-const normalizedSearch =
-  search
-    .trim()
-    .toLowerCase();
+  const filtered = artifacts.filter(a => {
+    const matchesCategory = category === 'all' || a.category === category;
 
-const filtered =
-  artifacts.filter(a => {
-    const matchesCategory =
-      category === 'all' ||
-      a.category === category;
+    if (!normalizedSearch) return matchesCategory;
 
-    if (!normalizedSearch) {
-      return matchesCategory;
-    }
-
-    const searchableText = [
-      a.name,
-      a.category,
-      a.era,
-      a.description
-    ]
+    const searchableText = [a.name, a.category, a.era, a.description]
       .filter(Boolean)
       .join(' ')
       .toLowerCase();
 
-    /*
-      DIRECT MATCH
-    */
-    const directMatch =
-      searchableText.includes(
-        normalizedSearch
-      );
+    const directMatch = searchableText.includes(normalizedSearch);
+    const aliasTerms = SEARCH_ALIASES[normalizedSearch] || [];
+    const aliasMatch = aliasTerms.some(term => searchableText.includes(term));
+    const fuzzyMatch = normalizedSearch.split(' ').some(word => searchableText.includes(word));
 
-    /*
-      ALIAS MATCH
-    */
-    const aliasTerms =
-      SEARCH_ALIASES[
-        normalizedSearch
-      ] || [];
-
-    const aliasMatch =
-      aliasTerms.some(term =>
-        searchableText.includes(
-          term
-        )
-      );
-
-    /*
-      PARTIAL WORD MATCH
-    */
-    const fuzzyMatch =
-      normalizedSearch
-        .split(' ')
-        .some(word =>
-          searchableText.includes(
-            word
-          )
-        );
-
-    return (
-      matchesCategory &&
-      (
-        directMatch ||
-        aliasMatch ||
-        fuzzyMatch
-      )
-    );
+    return matchesCategory && (directMatch || aliasMatch || fuzzyMatch);
   });
-
 
   return (
     <div className="artifacts-page">
       <div className="background-glow" />
 
       <Sidebar
-        onAskMuse={startListening}
+        onAskMuse={() => {}}
         onLanguage={handleLanguage}
         language={language}
       />
@@ -228,23 +178,41 @@ const filtered =
               }}>
                 {strings.collectionTag}
               </div>
+
               <h1>{strings.artifactExplorer}</h1>
+
               <p>{strings.artifactSubtitle}</p>
             </div>
 
             <div style={{
-              background: 'rgba(255,255,255,.45)', border: '1px solid rgba(255,255,255,.55)',
-              borderRadius: '24px', padding: '18px 24px', minWidth: '180px',
-              textAlign: 'center', backdropFilter: 'blur(18px)'
+              background: 'rgba(255,255,255,.45)',
+              border: '1px solid rgba(255,255,255,.55)',
+              borderRadius: '24px',
+              padding: '18px 24px',
+              minWidth: '180px',
+              textAlign: 'center',
+              backdropFilter: 'blur(18px)'
             }}>
-              <div style={{ fontSize: '.9rem', color: 'var(--muted)', marginBottom: '8px' }}>
+              <div style={{
+                fontSize: '.9rem',
+                color: 'var(--muted)',
+                marginBottom: '8px'
+              }}>
                 {strings.available}
               </div>
-              <div style={{ fontSize: '2rem', fontWeight: '700', fontFamily: 'Cinzel, serif' }}>
+
+              <div style={{
+                fontSize: '2rem',
+                fontWeight: '700',
+                fontFamily: 'Cinzel, serif'
+              }}>
                 {isTyping ? displayedText : filtered.length}
               </div>
 
-              <div style={{ color: 'var(--gold)', fontSize: '.95rem' }}>
+              <div style={{
+                color: 'var(--gold)',
+                fontSize: '.95rem'
+              }}>
                 {strings.artifactsLabel}
               </div>
             </div>
@@ -252,13 +220,19 @@ const filtered =
         </section>
 
         <section className="search-bar-container">
-          <input id="searchInput"
+          <input
+            id="searchInput"
             type="text"
             placeholder={strings.searchPlaceholder}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <select id="categoryFilter" value={category} onChange={(e) => setCategory(e.target.value)}>
+
+          <select
+            id="categoryFilter"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          >
             <option value="all">{strings.allCategories}</option>
             <option value="Weapons">Weapons</option>
             <option value="Paintings">Paintings</option>
@@ -269,209 +243,75 @@ const filtered =
 
         <section className="artifact-grid">
           {filtered.length === 0 ? (
-            <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '80px 20px' }}>
+            <div style={{
+              gridColumn: '1 / -1',
+              textAlign: 'center',
+              padding: '80px 20px'
+            }}>
               <h2>{strings.noFound}</h2>
               <p>{strings.noFoundSub}</p>
             </div>
           ) : (
-filtered.map(artifact => (
-  <div
-    key={artifact.id}
-    className="artifact-card"
-      onClick={(e) => {
-  e.stopPropagation();
-      if (
-        previewArtifact?.id !==
-        artifact.id
-      ) {
-        setPreviewArtifact(
-          artifact
-        );
-        return;
-      }
+            filtered.map(artifact => (
+              <div
+                key={artifact.id}
+                className="artifact-card"
+                onClick={(e) => {
+                  e.stopPropagation();
 
-      setSelectedArtifact(
-        artifact
-      );
-    }}
-    style={{
-      position:
-        'relative',
-      overflow:
-        'visible'
-    }}
-  >
-    <img
-      src={artifact.image}
-      alt={artifact.name}
-    />
+                  if (previewArtifact?.id !== artifact.id) {
+                    setPreviewArtifact(artifact);
+                    return;
+                  }
 
-    <div className="card-content">
-      <div style={{
-        display: 'flex',
-        justifyContent:
-          'space-between',
-        alignItems:
-          'flex-start',
-        gap: '12px'
-      }}>
-        <h2>
-          {artifact.name}
-        </h2>
+                  setSelectedArtifact(artifact);
+                }}
+                style={{
+                  position: 'relative',
+                  overflow: 'visible'
+                }}
+              >
+                <img
+                  src={artifact.image}
+                  alt={artifact.name}
+                />
 
-        <div style={{
-          fontSize:
-            '.8rem',
-          padding:
-            '7px 12px',
-          borderRadius:
-            '999px',
-          background:
-            previewArtifact?.id ===
-            artifact.id
-              ? 'rgba(215,126,46,.15)'
-              : 'rgba(179,139,89,.12)',
-          color:
-            'var(--gold)',
-          transition:
-            '.2s'
-        }}>
-          {
-            previewArtifact?.id ===
-            artifact.id
-              ? 'Tap again'
-              : strings.viewLabel
-          }
-        </div>
-      </div>
+                <div className="card-content">
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    gap: '12px'
+                  }}>
+                    <h2>{artifact.name}</h2>
 
-      <p>
-        {artifact.era}
-      </p>
+                    <div style={{
+                      fontSize: '.8rem',
+                      padding: '7px 12px',
+                      borderRadius: '999px',
+                      background:
+                        previewArtifact?.id === artifact.id
+                          ? 'rgba(215,126,46,.15)'
+                          : 'rgba(179,139,89,.12)',
+                      color: 'var(--gold)',
+                      transition: '.2s'
+                    }}>
+                      {
+                        previewArtifact?.id === artifact.id
+                          ? 'Tap again'
+                          : strings.viewLabel
+                      }
+                    </div>
+                  </div>
 
-      <small>
-        {artifact.category}
-      </small>
-    </div>
+                  <p>{artifact.era}</p>
 
-    {previewArtifact?.id ===
-      artifact.id && (
-      <div
-        style={{
-          position:
-            'absolute',
-          left:
-            '50%',
-          bottom:
-            '75%',
-          transform:
-            'translate(-50%, 100%)',
-          width:
-            '340px',
-          zIndex:
-            50,
-          borderRadius:
-            '30px',
-          padding:
-            '22px',
-          background:
-            'rgba(255,255,255,.95)',
-          border:
-            '1px solid rgba(255,255,255,.55)',
-          backdropFilter:
-            'blur(22px)',
-          boxShadow:
-            '0 20px 50px rgba(0,0,0,.16)'
-        }}
-      >
-        <div style={{
-          display:
-            'flex',
-          gap:
-            '14px'
-        }}>
-          <img
-            src={
-              artifact.image
-            }
-            alt={
-              artifact.name
-            }
-            style={{
-              width:
-                '96px',
-              height:
-                '96px',
-              objectFit:
-                'cover',
-              borderRadius:
-                '18px'
-            }}
-          />
-
-          <div>
-            <h3 style={{
-              margin:
-                '0 0 8px'
-            }}>
-              {
-                artifact.name
-              }
-            </h3>
-
-            <div style={{
-              color:
-                'var(--gold)',
-              fontWeight:
-                600,
-              marginBottom:
-                '8px'
-            }}>
-              {
-                artifact.era
-              }
-            </div>
-
-            <p style={{
-              fontSize:
-                '.92rem',
-              lineHeight:
-                1.5,
-              margin: 0,
-              color:
-                'var(--muted)'
-            }}>
-              {
-                artifact.description
-                  ?.slice(
-                    0,
-                    140
-                  )
-              }
-              ...
-            </p>
-
-            <div style={{
-              marginTop:
-                '12px',
-              fontSize:
-                '.82rem',
-              fontWeight:
-                700,
-              color:
-                'var(--gold)'
-            }}>
-              Tap again to explore
-            </div>
-          </div>
-        </div>
-      </div>
-    )}
-  </div>
-))
+                  <small>{artifact.category}</small>
+                </div>
+              </div>
+            ))
           )}
         </section>
-
       </main>
 
       {selectedArtifact && (

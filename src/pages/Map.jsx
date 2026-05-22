@@ -5,6 +5,7 @@ import { getNextLanguage, languageChangedMessage } from '../utils/language';
 import { speak } from '../utils/speak';
 import { LOCATIONS, NAV_NODES } from '../utils/mapData';
 import { findPath, getNearestLocation } from '../utils/pathfinding';
+import { smoothPath, pathToSvgD, pathToInstructions, instructionsToString } from '../utils/pathTranslator';
 
 const MAP_FEATURES = [
   { key: 'feature1Title', keyDesc: 'feature1Desc' },
@@ -19,13 +20,14 @@ export default function Map({
   const strings =
     t[language] || t['en-US'];
 
-  const [initialPos, setInitialPos] =
-    useState({ x: 50, y: 48 });
 
   const [initialLocation,
     setInitialLocation] =
     useState(null);
 
+const [isSettingInitialPosition, setIsSettingInitialPosition] =
+  useState(false);
+  
   const [targetPos, setTargetPos] =
     useState({ x: 50, y: 48 });
 
@@ -68,179 +70,308 @@ const [isTyping,
   setIsTyping] =
   useState(false);
 
+
+  const [activeWaypoint, setActiveWaypoint] =
+  useState(null);
+
+  const [showNavigateButton,
+  setShowNavigateButton] =
+  useState(false);
+
+
   const [sessionId] = useState(
     'map-visitor-' + Date.now()
   );
+
+  // Initialize with cafe node coordinates — the robot's known home position.
+  // This shows the correct blue-dot location immediately on first render,
+  // before the async /api/robot-position response comes back.
+  const [initialPos, setInitialPos] =
+    useState({ x: 50.0, y: 83.5 }); // cafe_c coordinates
 
   /*
     LOAD ROBOT POSITION
     Falls back to hallway node
   */
-  useEffect(() => {
-    async function loadPosition() {
-      try {
-        const response =
-          await fetch(
-            '/api/robot-position'
-          );
 
-        if (!response.ok) {
-          throw new Error();
-        }
+    const [mapImage,
+  setMapImage] =
+  useState(
+    '/images/museum-map.png'
+  );
+useEffect(() => {
+  async function loadPosition() {
+    try {
+      const response = await fetch('/api/robot-position');
 
-        const data =
-          await response.json();
+      if (!response.ok) throw new Error();
 
-        const robotPos = {
-          x: data.x,
-          y: data.y
-        };
+      const data = await response.json();
+      const robotPos = { x: data.x, y: data.y };
+      
+      setInitialPos(robotPos);
+      setTargetPos(robotPos);
 
-        setInitialPos(robotPos);
-        setTargetPos(robotPos);
+      // getNearestLocation returns a full LOCATIONS entry which has navNode
+      const nearest = getNearestLocation(robotPos.x, robotPos.y);
+      setInitialLocation(nearest);
+      setSelectedItem(nearest);
 
-        const nearest =
-          getNearestLocation(
-            robotPos.x,
-            robotPos.y
-          );
+    } catch {
+      // API unavailable — fall back to the robot's known home position (Cafe).
+      // Using a fixed node guarantees a deterministic, visible starting point
+      // instead of a random accessible node that could be anywhere on the map.
+      const cafeLocation = LOCATIONS.find(l => l.id === 'cafe')
+        ?? LOCATIONS[LOCATIONS.length - 1];
 
-        setInitialLocation(
-          nearest
-        );
+      const cafeNode = NAV_NODES.find(n => n.id === (cafeLocation?.navNode ?? 'cafe_c'));
+      const fallback = cafeNode
+        ? { x: cafeNode.x, y: cafeNode.y }
+        : { x: 50.0, y: 83.5 };
 
-        setSelectedItem(
-          nearest
-        );
+      setInitialPos(fallback);
+      setTargetPos(fallback);
 
-      } catch {
-        /*
-          FALLBACK ACCESSIBLE
-          HALLWAY POSITION
-        */
-        const accessible =
-          NAV_NODES.filter(
-            n =>
-              ![
-                'galleryA',
-                'galleryB',
-                'history',
-                'innovation',
-                'temp',
-                'archive'
-              ].includes(n.id)
-          );
-
-        const randomNode =
-          accessible[
-            Math.floor(
-              Math.random() *
-              accessible.length
-            )
-          ];
-
-        const fallback = {
-          x: randomNode.x,
-          y: randomNode.y
-        };
-
-        setInitialPos(fallback);
-        setTargetPos(fallback);
-
-        const nearest =
-          getNearestLocation(
-            fallback.x,
-            fallback.y
-          );
-
-        setInitialLocation(
-          nearest
-        );
-
-        setSelectedItem(
-          nearest
-        );
-      }
+      setInitialLocation(cafeLocation ?? null);
+      setSelectedItem(cafeLocation ?? null);
     }
+  }
+  
+  loadPosition();
+}, []);
 
-    loadPosition();
-  }, []);
+useEffect(() => {
+  async function loadMapImage() {
+    try {
+      const response =
+        await fetch(
+          '/api/map-image'
+        );
 
+      const data =
+        await response.json();
+
+      setMapImage(
+        data.imageUrl
+      );
+    } catch {
+      setMapImage(
+        '/images/museum-map.png'
+      );
+    }
+  }
+
+  loadMapImage();
+}, []);
   /*
     SEARCH RESULTS
   */
-  const visibleResults =
-    useMemo(() => {
-      const query =
-        searchQuery.trim();
+const visibleResults =
+  useMemo(() => {
 
-      if (!query) {
-        return [];
-      }
+    const query =
+      searchQuery
+        .trim()
+        .toLowerCase();
 
-      return LOCATIONS
-        .filter(item =>
-          item.label
-            .toLowerCase()
-            .includes(
-              query.toLowerCase()
-            )
+    if (!query) {
+      return LOCATIONS;
+    }
+
+    return LOCATIONS.filter(
+      item =>
+        (
+          item.label ??
+          item.name ??
+          ''
         )
-        .slice(0, 5);
-    }, [searchQuery]);
-
+          .toLowerCase()
+          .includes(query)
+    );
+  }, [searchQuery]);
   /*
     SELECT DESTINATION
   */
-  const selectMapItem = item => {
-    setSelectedItem(item);
-    setClickTarget(null); // clear any free-click pin when a named destination is chosen
-
-    const target = {
-      x: item.center.x,
-      y: item.center.y
-    };
-
-    setTargetPos(target);
-
-    const { path } = findPath(initialPos, target);
-    setRoutePath(path);
-
-    setSearchQuery('');
-
-    setChatResponse(
-      `${item.label} is selected. ${item.info}`
-    );
-  
+const selectMapItem = item => {
+  setSelectedItem(item);
+  setClickTarget(null);
+setShowNavigateButton(
+  true
+);
+  const target = {
+    x: item.center.x,
+    y: item.center.y
   };
+  setTargetPos(target);
 
+  // Snap target to its navNode
+  const targetNavNode = item.navNode
+    ? NAV_NODES.find(n => n.id === item.navNode)
+    : null;
+  const snappedTarget = targetNavNode
+    ? { x: targetNavNode.x, y: targetNavNode.y }
+    : target;
+const { path } = findPath(initialPos, snappedTarget);
+setRoutePath(path);
+const instructions = pathToInstructions(path);
+console.log(instructionsToString(instructions));
+
+  setSearchQuery('');
+
+  const label = item.label ?? item.name ?? 'Destination';
+  const info = item.info ?? item.type ?? `Navigating to ${label}.`;
+  setChatResponse(`${label} is selected. ${info}`);
+};
   /*
     MAP CLICK → PATHFIND TO ARBITRARY POINT
-  */
-  const handleMapClick = (event) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const px = event.clientX - rect.left;
-    const py = event.clientY - rect.top;
+    */
+async function sendNavigationRequest(
+  item
+) {
+  // Compute the path and translate it to robot instructions
+  const targetNavNode = item?.navNode
+    ? NAV_NODES.find(n => n.id === item.navNode)
+    : null;
 
-    // Convert pixel position → map percentage coordinates (0–100)
-    const x = (px / rect.width)  * 100;
-    const y = (py / rect.height) * 100;
+  const snappedTarget = targetNavNode
+    ? { x: targetNavNode.x, y: targetNavNode.y }
+    : { x: item?.center?.x ?? targetPos.x, y: item?.center?.y ?? targetPos.y };
 
-    const target = { x, y };
-    setClickTarget(target);
-    setTargetPos(target);
+  const { path } = findPath(initialPos, snappedTarget);
+  const instructions = pathToInstructions(path);
 
-    const { path, totalDistance } = findPath(initialPos, target);
-    setRoutePath(path);
+  console.log('[Navigate] Sending instructions:', instructionsToString(instructions));
 
-    // Identify the nearest named location for the info panel
-    const nearest = getNearestLocation(x, y);
-    setSelectedItem({
-      ...nearest,
-      label: nearest.label,
-      info: `Navigating to a point near ${nearest.label}. Distance: ${totalDistance.toFixed(1)} units.`
-    });
-  };
+  try {
+    await fetch(
+      '/api/navigate',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type':
+            'application/json'
+        },
+        body: JSON.stringify({
+          destination:
+            item?.label,
+          coordinates: {
+            x:
+              item?.center?.x ??
+              targetPos.x,
+
+            y:
+              item?.center?.y ??
+              targetPos.y
+          },
+          source:
+            'map-ui',
+          instructions   // ← robot command array forwarded to Blynk
+        })
+      }
+    );
+  } catch (err) {
+    console.error(
+      'Navigation failed:',
+      err
+    );
+  }
+}
+
+const handleMapClick = (event) => {
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const x =
+    ((event.clientX - rect.left) / rect.width) * 100;
+
+  const y =
+    ((event.clientY - rect.top) / rect.height) * 100;
+
+  // =====================================================
+  // SET INITIAL POSITION MODE
+  // =====================================================
+
+  if (isSettingInitialPosition) {
+
+    // snap to nearest nav node
+    let nearestNode = NAV_NODES[0];
+    let bestDist = Infinity;
+
+    for (const node of NAV_NODES) {
+
+      const dx = node.x - x;
+      const dy = node.y - y;
+
+      const dist = dx * dx + dy * dy;
+
+      if (dist < bestDist) {
+        bestDist = dist;
+        nearestNode = node;
+      }
+    }
+
+    const snappedPos = {
+      x: nearestNode.x,
+      y: nearestNode.y
+    };
+
+    setInitialPos(snappedPos);
+
+    const nearestLocation =
+      getNearestLocation(
+        snappedPos.x,
+        snappedPos.y
+      );
+
+    setInitialLocation(nearestLocation);
+
+    setIsSettingInitialPosition(false);
+
+    setChatResponse(
+      `Initial position set near ${nearestLocation.label}.`
+    );
+
+    return;
+  }
+
+  // =====================================================
+  // NORMAL DESTINATION CLICK
+  // =====================================================
+
+  const target = { x, y };
+
+  setClickTarget(target);
+  setTargetPos(target);
+
+  const { path } =
+    findPath(initialPos, target);
+
+ setRoutePath(path);
+
+  const nearest =
+    getNearestLocation(x, y);
+
+  const label =
+    nearest.label ??
+    nearest.name ??
+    'Nearby location';
+
+  setSelectedItem({
+    ...nearest,
+    label,
+    info:
+      `Navigating to a point near ${label}.`
+    }
+);
+setShowNavigateButton(
+  true
+)
+  const instructions =
+    pathToInstructions(path);
+
+  console.log(
+    instructionsToString(instructions)
+  );
+};
 
   /*
     SEARCH SUBMIT
@@ -272,39 +403,26 @@ const [isTyping,
       );
     };
 
-async function typeResponse(
-  text
-) {
+async function typeResponse(text) {
   setIsTyping(true);
   setDisplayedText('');
 
   let current = '';
-
   const speed = 16;
 
   for (let i = 0; i < text.length; i++) {
     current += text[i];
+    setDisplayedText(current);
 
-    setDisplayedText(
-      current
-    );
-
-    await new Promise(
-      resolve =>
-        setTimeout(
-          resolve,
-          speed
-        )
-    );
+    await new Promise(resolve => setTimeout(resolve, speed));
   }
 
-await typeResponse(
-  data.text
-);
-
   setIsTyping(false);
-
 }
+
+// used by the chat flow
+// (kept here to match the original logic)
+
 
   const handleChatAsk =
     async () => {
@@ -370,11 +488,29 @@ await typeResponse(
         const data =
           await response.json();
 
-        setChatResponse(
-          data.text ||
-          strings
-            .mapChatFallback
-        );
+let responseText =
+  data.text ||
+  strings
+    .mapChatFallback;
+if (responseText.startsWith('[NAVIGATION]')) {
+  responseText = responseText.replace('[NAVIGATION]', '').trim();
+
+  // Search both the question AND the AI response for a location name
+  const searchIn = (question + ' ' + responseText).toLowerCase();
+  
+  const match = LOCATIONS.find(location =>
+    searchIn.includes(location.label.toLowerCase())
+  );
+
+  if (match) {
+    selectMapItem(match);
+    sendNavigationRequest(match);
+  }
+}
+
+setChatResponse(
+  responseText
+);
 
       } catch (err) {
         console.error(err);
@@ -466,25 +602,85 @@ function toggleFullscreen() {
             </button>
           </div>
           {searchQuery && visibleResults.length > 0 && (
-            <div className="search-suggestions">
-              {visibleResults.map((item) => (
-                <button key={item.label} type="button" onClick={() => selectMapItem(item)}>
-                  <span>{item.label}</span>
-                  <small>{item.type}</small>
-                </button>
-              ))}
-            </div>
+ <div
+  className="search-suggestions"
+  style={{
+    maxHeight: '280px',
+    overflowY: 'auto',
+    marginTop: '12px',
+    borderRadius: '20px',
+    background:
+      'rgba(255,255,255,.94)',
+    backdropFilter:
+      'blur(16px)',
+    boxShadow:
+      '0 10px 40px rgba(0,0,0,.08)',
+    border:
+      '1px solid rgba(0,0,0,.05)'
+  }}
+>
+  {visibleResults.map(
+    (item) => (
+      <button
+        key={item.label}
+        type="button"
+        onClick={() =>
+          selectMapItem(item)
+        }
+      >
+        <span>
+          {item.label}
+        </span>
+
+        <small>
+          {item.type}
+        </small>
+      </button>
+    )
+  )}
+</div>
           )}
         </section>
 
         <section className="map-grid">
           <div className="map-visual">
-            <div className="map-frame">
-<div className="map-frame" onClick={handleMapClick} style={{ cursor: 'crosshair' }}>
-  <img
-    src="/images/museum-map.png"
-    alt={strings.mapAlt}
-  />
+  <div
+  style={{
+    display: 'flex',
+    gap: '12px',
+    marginBottom: '16px',
+    flexWrap: 'wrap'
+  }}
+>
+  <button
+    className="gold-btn"
+    type="button"
+    onClick={() =>
+      setIsSettingInitialPosition(v => !v)
+    }
+    style={{
+      background:
+        isSettingInitialPosition
+          ? '#d77e2e'
+          : undefined
+    }}
+  >
+    {isSettingInitialPosition
+      ? 'Click Map To Place Start'
+      : 'Set Initial Position'}
+  </button>
+</div>
+            <div
+  className="map-frame"
+  onClick={(e) => {
+    setActiveWaypoint(null);
+    handleMapClick(e);
+  }} style={{ cursor: 'crosshair' }}>
+
+<img
+  src={mapImage}
+  alt={strings.mapAlt}
+/>
 <button
   onClick={
     toggleFullscreen
@@ -513,18 +709,18 @@ function toggleFullscreen() {
     : 'Fullscreen'}
 </button>
   {/* ROUTE SVG */}
-  <svg
-    className="map-route-line"
-    style={{
-      position: 'absolute',
-      inset: 0,
-      width: '100%',
-      height: '100%',
-      overflow: 'visible'
-    }}
-    viewBox="0 0 100 100"
-    preserveAspectRatio="none"
-  >
+<svg
+  className="map-route-line"
+  style={{
+    position: 'absolute',
+    inset: 0,
+    width: '100%',
+    height: '100%',
+    overflow: 'visible'
+  }}
+  viewBox="0 0 100 100"
+  preserveAspectRatio="none"
+>
     {/* Animated route */}
     {routePath.length > 1 && (
       <>
@@ -542,12 +738,10 @@ function toggleFullscreen() {
         </defs>
 
         {/* Glow path */}
-        <polyline
-          points={routePath
-            .map(
-              p => `${p.x},${p.y}`
-            )
-            .join(' ')}
+        <path
+          d={pathToSvgD(
+            routePath.filter(p => p.id !== '__start__' && p.id !== '__goal__')
+          )}
           fill="none"
           stroke="rgba(215,126,46,.22)"
           strokeWidth="2.2"
@@ -557,24 +751,16 @@ function toggleFullscreen() {
         />
 
         {/* Main path */}
-        <polyline
-          points={routePath
-            .map(
-              p => `${p.x},${p.y}`
-            )
-            .join(' ')}
-          fill="none"
-          stroke="#d77e2e"
-          strokeWidth="0.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeDasharray="120"
-          strokeDashoffset="120"
-          style={{
-            animation:
-              'drawRoute 1.6s ease forwards'
-          }}
-        />
+<path
+  d={pathToSvgD(
+    routePath.filter(p => p.id !== '__start__' && p.id !== '__goal__')
+  )}
+  fill="none"
+  stroke="#d77e2e"
+  strokeWidth="0.75"
+  strokeLinecap="round"
+  strokeLinejoin="round"
+/>
       </>
     )}
 
@@ -639,43 +825,117 @@ function toggleFullscreen() {
     <div className="pin-ring start-ring" />
     <div className="pin-dot start-dot" />
   </div>
+  {/* LOCATION WAYPOINTS */}
+{LOCATIONS.map(location => {
 
-  {/* LOCATION LABELS */}
-  {LOCATIONS.map(location => (
+  const isArtifact =
+    location.type === 'Artifact' ||
+    location.type === 'Exhibit' ||
+    location.type === 'Archive' ||
+    location.type === 'Interactive';
+
+  const isService =
+    location.type === 'Service' ||
+    location.type === 'Cafe';
+
+  const isActive =
+    activeWaypoint === location.id;
+
+  // keep safely inside bounds
+  const x =
+    Math.min(
+      97,
+      Math.max(3, location.center.x)
+    );
+
+  const y =
+    Math.min(
+      97,
+      Math.max(3, location.center.y)
+    );
+
+  return (
     <div
-      key={location.label}
+      key={location.id}
       style={{
         position: 'absolute',
-        left:
-          `${location.center.x}%`,
-        top:
-          `${location.center.y}%`,
-        transform:
-          'translate(-50%, -50%)',
-        pointerEvents: 'none',
-        fontSize: '0.8rem',
-        fontWeight: 600,
-        color:
-          'rgba(85,60,35,.8)',
-        background:
-          'rgba(255,255,255,.75)',
-        padding:
-          '4px 8px',
-        borderRadius:
-          '999px',
-        backdropFilter:
-          'blur(8px)',
-        border:
-          '1px solid rgba(180,140,90,.14)',
-        zIndex: 2
+        left: `${x}%`,
+        top: `${y}%`,
+        transform: 'translate(-50%, -50%)',
+        zIndex: isActive ? 20 : 6
       }}
     >
-      {location.label}
+
+      {/* WAYPOINT DOT */}
+      <button
+        onClick={(e) => {
+
+          e.stopPropagation();
+
+          // second tap navigates
+          if (isActive) {
+            selectMapItem(location);
+            return;
+          }
+
+          // first tap opens label
+          setActiveWaypoint(location.id);
+        }}
+        style={{
+          width: isArtifact ? '10px' : '9px',
+          height: isArtifact ? '10px' : '9px',
+          borderRadius: '999px',
+          border: '2px solid white',
+          background:
+            isArtifact
+              ? '#b7854d'
+              : isService
+                ? '#4d7bb7'
+                : '#8b6b43',
+          boxShadow:
+            isActive
+              ? '0 0 0 6px rgba(183,133,77,.18)'
+              : '0 2px 8px rgba(0,0,0,.18)',
+          cursor: 'pointer',
+          transition: 'all .16s ease',
+          padding: 0
+        }}
+      />
+
+      {/* TAP LABEL */}
+      {isActive && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            selectMapItem(location);
+          }}
+          style={{
+            position: 'absolute',
+            top: '18px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(255,255,255,.96)',
+            padding: '7px 12px',
+            borderRadius: '999px',
+            whiteSpace: 'nowrap',
+            fontSize: '0.74rem',
+            fontWeight: 700,
+            color: '#553c23',
+            boxShadow:
+              '0 4px 14px rgba(0,0,0,.12)',
+            border:
+              '1px solid rgba(180,140,90,.16)',
+            cursor: 'pointer'
+          }}
+        >
+          {location.label}
+        </button>
+      )}
     </div>
-  ))}
-</div>
-            </div>
-            <div className="map-badge">
+  );
+})}
+          </div>
+          <div className="map-badge">
               <strong>{strings.youAreHere}</strong>
               <span>{strings.nearbyLabel} {initialLocation?.label}</span>
             </div>
@@ -705,7 +965,44 @@ function toggleFullscreen() {
             <div className="info-pill">{strings.mapTips}</div>
             <h2>{selectedItem?.label || strings.infoTitle}</h2>
             <p>{selectedItem?.info || strings.infoDesc}</p>
-
+{selectedItem && (
+  <button
+    className="gold-btn"
+    type="button"
+    onClick={() =>
+      sendNavigationRequest(
+        selectedItem
+      )
+    }
+    style={{
+      marginTop: '18px',
+      width: '100%',
+      borderRadius: '18px',
+      padding:
+        '14px 18px',
+      fontSize:
+        '1rem',
+      fontWeight: 700,
+      display: 'flex',
+      justifyContent:
+        'center',
+      alignItems:
+        'center',
+      gap: '10px',
+      boxShadow:
+        '0 8px 26px rgba(215,126,46,.22)',
+      transform:
+        'translateY(0)',
+      transition:
+        'all .25s ease'
+    }}
+  >
+    Navigate To
+    <span>
+      {selectedItem.label}
+    </span>
+  </button>
+)}
             <div className="info-stat-grid">
               <div>
                 <span>{strings.locationLabel}</span>
