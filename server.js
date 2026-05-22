@@ -27,6 +27,12 @@ const multer = require('multer');
 // Dynamic museum collection name (defaults to 'artifacts')
 let MUSEUM_COLLECTION = process.env.MUSEUM_COLLECTION || 'artifacts';
 
+const fs = require('fs');
+const multer = require('multer');
+
+// Dynamic museum collection name (defaults to 'artifacts')
+let MUSEUM_COLLECTION = process.env.MUSEUM_COLLECTION || 'artifacts';
+
 
 /*
   OPENCLAW API
@@ -43,6 +49,7 @@ const OPENCLAW_URL =
 const BLYNK_TOKEN = process.env.BLYNK_TOKEN || '';
 const BLYNK_PIN   = process.env.BLYNK_PIN   || 'V0';
 
+<<<<<<< HEAD
 /*
   PIPER TTS CONFIG
   Edit these to match your install paths, or set in .env
@@ -53,6 +60,13 @@ const WHISPER_MODEL = process.env.WHISPER_MODEL || 'base';
 
 /**
  * Sends a robot command array to the ESP32 via Blynk.
+=======
+/**
+ * Sends a robot command array to the ESP32 via Blynk.
+ * The commands array (JSON string) is written to the configured virtual pin.
+ *
+ * @param {Array} commands - Array of instruction objects from pathToInstructions()
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
  */
 async function sendToBlynk(commands) {
   if (!BLYNK_TOKEN) {
@@ -62,6 +76,10 @@ async function sendToBlynk(commands) {
 
   const json = JSON.stringify(commands);
 
+<<<<<<< HEAD
+=======
+  // Blynk HTTP API: update a virtual pin value
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
   const url =
     `https://blynk.cloud/external/api/update` +
     `?token=${BLYNK_TOKEN}` +
@@ -77,6 +95,7 @@ async function sendToBlynk(commands) {
   console.log(`[Blynk] Commands sent to ${BLYNK_PIN}:`, json);
 }
 
+<<<<<<< HEAD
 
 // ── Firebase setup ─────────────────────────────────────────────────
 const { initializeApp } = require('firebase/app');
@@ -175,6 +194,8 @@ async function triggerBlynkAlarm(token, artifactId) {
   }, 5000);
 }
 
+=======
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
 /*
   SIMPLE IN-MEMORY VISITOR MEMORY
@@ -186,6 +207,7 @@ const visitorMemories = new Map();
 */
 const MUSE_SYSTEM_PROMPT = `
 
+<<<<<<< HEAD
 You are MUSE, the intelligence of a grand museum — precise, knowledgeable, and direct.
 
 RULES — NEVER BREAK THESE
@@ -204,6 +226,46 @@ WHEN APPROPRIATE
 `;
 
 // ── Expanded locale → language label map ──────────────────────────
+=======
+Your Personality
+You are a museum assistant named Muse. You are stationed in a grand, historic museum filled with wonders from across time and space. Your purpose is to enlighten and captivate visitors by sharing the fascinating stories behind the artifacts on display.
+
+Eloquent & Theatrical: Highly articulate with a grand, poetic vocabulary. You treat the museum floor as your stage.
+
+Courtly & Polite: Unfailingly well-mannered, addressing visitors with immense, old-world respect.
+
+Curious & Intellectual: Fascinated by human progress, enlightenment, and the stories behind objects.
+
+Calm yet Passionate: Unwaveringly composed, but intensely captivated by history.
+
+Rules
+Keep it Concise: Limit responses to 50–120 words.
+
+European Flair: Use sophisticated, slightly archaic language. Strictly avoid modern slang.
+
+Dramatic Politeness: Address visitors theatrically (e.g., "My dear friend," "My good sir," "Young scholar").
+
+Smooth & Natural: Never ramble or list dry statistics. Speak like a captivating storyteller, not a computer.
+
+When Explaining Artifacts
+The "Why" Matters: Explain why the object was vital to its time and how people interacted with it.
+
+Theatrical Storytelling: Frame the history through a lens of human struggle, ingenuity, or a grand scheme.
+
+One Memorable Detail: Include a sharp, memorable anecdote or a witty observation.
+
+Bridge to History: Make the visitor feel the tangible reality of the past.
+
+If Appropriate
+Express refined wonder at human achievement.
+
+Ask sharp, curiosity-inducing questions to challenge the visitor's intellect.
+
+Use a touch of dry irony or gentlemanly wit.
+`;
+
+// ─── REPLACE buildMusePrompt with this ───────────────────────────────────────
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 const LOCALE_TO_LANGUAGE = {
   'en-US': 'English',
   'hi-IN': 'Hindi',
@@ -235,6 +297,7 @@ CRITICAL LANGUAGE RULE:
 You MUST respond ONLY in ${languageLabel}. This is non-negotiable.
 Do NOT respond in English unless the selected language is English.
 Do NOT mix languages. Every word of your response must be in ${languageLabel}.`;
+<<<<<<< HEAD
 }
 
 app.use(express.json({ limit: '10mb' }));
@@ -252,16 +315,52 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+=======
+}
+app.use(express.json({ limit: '10mb' }));
+
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+const uploadDir = path.join(
+  __dirname,
+  'src',
+  'public',
+  'images',
+);
+
+console.log('UPLOAD DIR:', uploadDir);
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, {
+    recursive: true
+  });
+}
+
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 const storage = multer.diskStorage({
   destination: (_, __, cb) => {
     cb(null, uploadDir);
   },
+<<<<<<< HEAD
   filename: (_, file, cb) => {
     cb(null, 'current-map' + path.extname(file.originalname));
   }
 });
 
 const upload = multer({ storage });
+=======
+
+  filename: (_, file, cb) => {
+    cb(
+      null,
+      'current-map' +
+      path.extname(file.originalname)
+    );
+  }
+});
+
+const upload =
+  multer({ storage });
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
 app.use(
   '/uploads',
@@ -270,7 +369,14 @@ app.use(
     lastModified: false,
     cacheControl: false,
     setHeaders: (res) => {
+<<<<<<< HEAD
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+=======
+      res.setHeader(
+        'Cache-Control',
+        'no-store, no-cache, must-revalidate, proxy-revalidate'
+      );
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
     }
@@ -416,6 +522,7 @@ Your task:
 
 app.post("/api/ask", async (req, res) => {
   try {
+<<<<<<< HEAD
     const {
       question,
       context,
@@ -423,6 +530,15 @@ app.post("/api/ask", async (req, res) => {
       language = "en-US",
       mapContext
     } = req.body;
+=======
+const {
+  question,
+  context,
+  visitorType,
+  language = "en-US",
+  mapContext
+} = req.body;
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
     const sessionId = req.headers["x-session-id"] || "default";
     const memory = getVisitorMemory(sessionId);
@@ -438,11 +554,25 @@ app.post("/api/ask", async (req, res) => {
       }
     }
 
+<<<<<<< HEAD
     let dynamicContext = null;
     if (mapContext) {
       dynamicContext = {
         role: "system",
         content: `
+=======
+    /*
+      MAP CONTEXT
+      TEMPORARY ONLY
+      DOES NOT POLLUTE MEMORY
+    */
+    let dynamicContext =
+      null;
+if (mapContext) {
+  dynamicContext = {
+    role: "system",
+    content: `
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 You are helping a museum visitor navigate.
 
 Museum locations:
@@ -482,17 +612,55 @@ Wrong examples:
 Keep responses concise.
 Never invent locations.
 `
-      };
-    }
+  };
+}
 
     saveToMemory(memory, "user", question);
 
+<<<<<<< HEAD
     const messages = [
       {
         role: "system",
         content: systemPrompt
       }
     ];
+=======
+    /*
+      BUILD MESSAGE LIST
+      SAFE FOR OTHER PAGES
+    */
+const messages = [
+  {
+    role: "system",
+    content:
+      systemPrompt
+  }
+];
+
+/*
+  ARTIFACT CONTEXT
+*/
+if (context) {
+  messages.push({
+    role: "system",
+    content: `
+Current artifact context:
+
+${context}
+
+IMPORTANT RULES:
+- Answer based on this artifact
+- Stay museum focused
+- Use the context when relevant
+- If the visitor asks
+  about the object,
+  assume they mean
+  the currently opened
+  artifact
+`
+  });
+}
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
     if (context) {
       messages.push({
@@ -518,11 +686,44 @@ IMPORTANT RULES:
 
     messages.push(...memory.slice(-12));
 
+<<<<<<< HEAD
     const data = await callOpenclaw({
       model: "gemma4:31b-cloud",
       messages,
       temperature: 0.7,
       max_tokens: 180
+=======
+        messages,
+
+        temperature:
+          0.7,
+
+        max_tokens:
+          180
+      });
+
+let answer = data.choices?.[0]?.message?.content || "I could not answer that.";
+
+// Server-side safety net: if the question sounds navigational but AI forgot the tag, add it
+const navKeywords = ['go to', 'take me', 'navigate', 'where is', 'find the', 'how do i get'];
+const isNavQuestion = navKeywords.some(kw => question.toLowerCase().includes(kw));
+if (isNavQuestion && !answer.startsWith('[NAVIGATION]')) {
+  answer = '[NAVIGATION] ' + answer;
+}
+
+    /*
+      SAVE AI RESPONSE
+    */
+    saveToMemory(
+      memory,
+      "assistant",
+      answer
+    );
+
+    res.json({
+      success: true,
+      text: answer
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
     });
 
     let answer = data.choices?.[0]?.message?.content || "I could not answer that.";
@@ -561,10 +762,81 @@ let robotPosition = {
   y: 48
 };
 
+<<<<<<< HEAD
+=======
+/*
+  GET CURRENT POSITION
+*/
+
+
+app.post('/api/robot-position', (req, res) => {
+  const { x, y } = req.body || {};
+
+  if (typeof x === 'number' && typeof y === 'number') {
+    robotPosition = { x, y };
+    io.emit('robotPosition', robotPosition); // ← ADD THIS
+  }
+
+  res.json({ success: true, position: robotPosition });
+});
+async function pollBlynkPosition() {
+  if (!BLYNK_TOKEN) return;
+
+  try {
+    const res = await fetch(
+      `https://blynk.cloud/external/api/get?token=${BLYNK_TOKEN}&pin=V2`
+    );
+
+    if (!res.ok) {
+      console.warn('[Blynk Poll] HTTP error:', res.status);
+      return;
+    }
+
+    const raw = await res.text();
+
+    let x, y, heading = 0;
+
+    if (typeof raw === 'string' && raw.includes(',')) {
+      const parts = raw.trim().split(',');
+      x = parseFloat(parts[0]);
+      y = parseFloat(parts[1]);
+      heading = parseFloat(parts[2]) || 0;
+
+    } else {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length >= 2) {
+          x = parseFloat(parsed[0]);
+          y = parseFloat(parsed[1]);
+          heading = parseFloat(parsed[2]) || 0;
+        } else {
+          console.warn('[Blynk Poll] Unexpected JSON shape:', parsed);
+          return;
+        }
+      } catch {
+        console.warn('[Blynk Poll] Could not parse:', raw);
+        return;
+      }
+    }
+
+    if (!isNaN(x) && !isNaN(y)) {
+      robotPosition = { x, y, heading };
+      io.emit('robotPosition', robotPosition);
+      console.log(`[Blynk Poll] Position updated → x=${x} y=${y} hdg=${heading}`);
+    }
+
+  } catch (err) {
+    console.error('[Blynk Poll] Failed:', err.message);
+  }
+}
+
+
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 app.get('/api/robot-position', (req, res) => {
   res.json(robotPosition);
 });
 
+<<<<<<< HEAD
 app.post('/api/robot-position', (req, res) => {
   const { x, y } = req.body || {};
 
@@ -628,6 +900,11 @@ async function pollBlynkPosition() {
 }
 
 setInterval(pollBlynkPosition, 1000);
+=======
+setInterval(pollBlynkPosition, 1000);
+
+
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
 
 async function callOpenclaw(payload) {
@@ -829,6 +1106,7 @@ io.on("connection", socket => {
     });
   });
 
+<<<<<<< HEAD
   socket.on("visitorMessage", async data => {
     try {
       const {
@@ -865,6 +1143,48 @@ io.on("connection", socket => {
       socket.emit("museReply", { text: "Museum assistant unavailable." });
     }
   });
+=======
+  /*
+    OPTIONAL:
+    REALTIME MUSE CHAT
+  */
+// ─── REPLACE the visitorMessage socket handler with this ─────────────────────
+socket.on("visitorMessage", async data => {
+  try {
+    const {
+      message,
+      sessionId = socket.id,
+      language = 'en-US'          // ← accept language from the client
+    } = data;
+
+    const memory = getVisitorMemory(sessionId);
+    saveToMemory(memory, "user", message);
+
+    const systemPrompt = buildMusePrompt(language);  // ← use it here
+
+    const result = await callOpenclaw({
+      model: "gemma4:31b-cloud",
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...memory.slice(-8)
+      ],
+      temperature: 0.7,
+      max_tokens: 180
+    });
+
+    const reply =
+      result.choices?.[0]?.message?.content ||
+      "I could not respond.";
+
+    saveToMemory(memory, "assistant", reply);
+    socket.emit("museReply", { text: reply });
+
+  } catch (err) {
+    console.error(err);
+    socket.emit("museReply", { text: "Museum assistant unavailable." });
+  }
+});
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
   socket.on("disconnect", () => {
     console.log("Touchscreen disconnected");
@@ -876,7 +1196,11 @@ app.post('/api/navigate', async (req, res) => {
     destination,
     coordinates,
     source,
+<<<<<<< HEAD
     instructions
+=======
+    instructions   // array of robot instructions from pathToInstructions()
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
   } = req.body || {};
 
   console.log('========== NAVIGATION REQUEST ==========');
@@ -886,6 +1210,10 @@ app.post('/api/navigate', async (req, res) => {
   console.log('Instructions:', instructions?.length ?? 0, 'steps');
   console.log('========================================');
 
+<<<<<<< HEAD
+=======
+  // Nothing to drive without instructions
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
   if (!instructions || instructions.length === 0) {
     console.warn('[Navigate] No instructions received — skipping Blynk push');
     return res.json({ success: true, blynk: false, reason: 'no instructions' });
@@ -896,6 +1224,10 @@ app.post('/api/navigate', async (req, res) => {
     res.json({ success: true, blynk: true, steps: instructions.length });
   } catch (err) {
     console.error('[Navigate] Blynk push failed:', err.message);
+<<<<<<< HEAD
+=======
+    // Still return success to the UI — the nav was planned; Blynk is optional hardware
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
     res.json({ success: true, blynk: false, reason: err.message });
   }
 });
@@ -911,6 +1243,7 @@ app.post('/api/dev-unlock', (req, res) => {
 });
 
 
+<<<<<<< HEAD
 app.post('/api/save-map', async (req, res) => {
   try {
     const mapData = req.body;
@@ -923,10 +1256,27 @@ app.post('/api/save-map', async (req, res) => {
     );
 
     const fileContent = `
+=======
+app.post(
+  '/api/save-map',
+  async (req, res) => {
+    try {
+      const mapData = req.body;
+
+      const filePath = path.join(
+        __dirname,
+        'src',
+        'utils',
+        'mapData.js'
+      );
+
+      const fileContent = `
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 export const GRID_STEP =
   ${mapData.GRID_STEP};
 
 export const ZONE_RECTS =
+<<<<<<< HEAD
   ${JSON.stringify(mapData.ZONE_RECTS, null, 2)};
 
 export const ZONE_CONNECTIONS =
@@ -937,12 +1287,41 @@ export const NAV_NODES =
 
 export const LOCATIONS =
   ${JSON.stringify(mapData.LOCATIONS, null, 2)};
+=======
+  ${JSON.stringify(
+    mapData.ZONE_RECTS,
+    null,
+    2
+  )};
+
+export const ZONE_CONNECTIONS =
+  ${JSON.stringify(
+    mapData.ZONE_CONNECTIONS,
+    null,
+    2
+  )};
+
+export const NAV_NODES =
+  ${JSON.stringify(
+    mapData.NAV_NODES,
+    null,
+    2
+  )};
+
+export const LOCATIONS =
+  ${JSON.stringify(
+    mapData.LOCATIONS,
+    null,
+    2
+  )};
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 export const ZONE_NODE_KEYS = new Map(
   Object.entries(${JSON.stringify(mapData.ZONE_NODE_KEYS || {}, null, 2)})
     .map(([k, v]) => [k, new Set(v)])
 );
 `;
 
+<<<<<<< HEAD
     fs.writeFileSync(filePath, fileContent, 'utf8');
 
     console.log('✓ mapData.js updated');
@@ -955,12 +1334,44 @@ export const ZONE_NODE_KEYS = new Map(
   }
 });
 
+=======
+      fs.writeFileSync(
+        filePath,
+        fileContent,
+        'utf8'
+      );
+
+      console.log(
+        '✓ mapData.js updated'
+      );
+
+      res.json({
+        success: true
+      });
+
+    } catch (err) {
+      console.error(
+        'Save map failed:',
+        err
+      );
+
+      res.status(500).json({
+        success: false
+      });
+    }
+  }
+);
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 app.post(
   '/api/upload-map-image',
   upload.single('map'),
   (req, res) => {
     console.log('Upload received:', req.file?.filename);
+<<<<<<< HEAD
     console.log('Files in uploadDir:', fs.readdirSync(uploadDir));
+=======
+    console.log('Files in uploadDir:', fs.readdirSync(uploadDir)); // ← add this
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
     if (!req.file) {
       return res.status(400).json({ success: false });
@@ -970,7 +1381,11 @@ app.post(
     existing
       .filter(f => f.startsWith('current-map') && f !== req.file.filename)
       .forEach(f => {
+<<<<<<< HEAD
         console.log('Deleting:', f);
+=======
+        console.log('Deleting:', f); 
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
         fs.unlinkSync(path.join(uploadDir, f));
       });
 
@@ -996,6 +1411,7 @@ app.post('/api/upload-logo', uploadLogo.single('logo'), (req, res) => {
   res.json({ success: true, imageUrl: `/uploads/${req.file.filename}` });
 });
 
+<<<<<<< HEAD
 app.get('/api/map-image', (req, res) => {
   const files = fs.readdirSync(uploadDir);
 
@@ -1010,6 +1426,41 @@ app.get('/api/map-image', (req, res) => {
 
 
 app.get("/{*path}", (req, res) => {
+=======
+app.get(
+  '/api/map-image',
+  (req, res) => {
+
+    const files =
+      fs.readdirSync(uploadDir);
+
+    const mapFile =
+      files.find(file =>
+        file.startsWith(
+          'current-map'
+        )
+      );
+
+    if (!mapFile) {
+      return res.json({
+        imageUrl:
+          '/images/museum-map.png'
+      });
+    }
+
+    res.json({
+      imageUrl:
+        `/uploads/${mapFile}`
+    });
+  }
+);
+
+
+app.get("/{*path}", (req, res) => {
+  // SPA fallback for client-side routes.
+  // React Router pages rely on browser navigation Accept: text/html.
+  // For other resource requests (assets/json), return 404 to avoid masking errors.
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
   const accept = req.headers.accept || "";
   if (accept.includes("text/html")) {
     res.sendFile(path.join(__dirname, "dist", "index.html"));

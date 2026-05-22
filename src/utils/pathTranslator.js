@@ -19,7 +19,11 @@
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────
 
+<<<<<<< HEAD
 const CM_PER_UNIT = 10;
+=======
+const CM_PER_UNIT = 2;
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 const STEPS_PER_CM = 10;
 
 const V_MAX = 40;
@@ -721,8 +725,13 @@ function classifySegments(waypoints) {
 
           direction:
             delta >= 0
+<<<<<<< HEAD
               ? 'RIGHT'
               : 'LEFT',
+=======
+            ? 'LEFT'
+            : 'RIGHT',
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
           fromId: from.id,
           toId: to.id
@@ -738,8 +747,13 @@ function classifySegments(waypoints) {
 
           direction:
             delta >= 0
+<<<<<<< HEAD
               ? 'RIGHT'
               : 'LEFT',
+=======
+              ? 'LEFT'
+              : 'RIGHT',
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
           radiusUnits:
             FILLET_RADIUS,
@@ -1047,8 +1061,13 @@ export function pathToInstructions(
 
         direction:
           turn >= 0
+<<<<<<< HEAD
             ? 'RIGHT'
             : 'LEFT',
+=======
+            ? 'LEFT'
+            : 'RIGHT',
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
         omega:
           OMEGA_POINT_TURN,
@@ -1182,8 +1201,13 @@ export function pathToAdvancedInstructions(
 
       direction:
         initialTurn >= 0
+<<<<<<< HEAD
           ? 'RIGHT'
           : 'LEFT',
+=======
+          ? 'LEFT'
+          : 'RIGHT',
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
       omega:
         OMEGA_POINT_TURN,

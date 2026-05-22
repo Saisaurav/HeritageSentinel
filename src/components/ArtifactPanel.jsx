@@ -1,6 +1,11 @@
 import { useState, useRef } from 'react';
 import { t } from '../utils/translations';
 import { speak, stopSpeaking } from '../utils/speak';
+import { db } from "../firebaseConfig";
+import {
+  doc,
+  getDoc
+} from "firebase/firestore";
 
 import {
   startVoiceRecognition,
@@ -55,7 +60,13 @@ export default function ArtifactPanel({
 }) {
   const lang =
     language ||
+<<<<<<< HEAD
     localStorage.getItem('language') ||
+=======
+    localStorage.getItem(
+      'language'
+    ) ||
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
     'en-US';
 
   const strings =
@@ -92,6 +103,7 @@ export default function ArtifactPanel({
     setIsExpanded
   ] = useState(false);
 
+<<<<<<< HEAD
   const { wsRef, wsReady } = useVoiceWS();
 
   const voiceSessionRef = useRef(null);
@@ -99,6 +111,8 @@ export default function ArtifactPanel({
   const [voiceStatus, setVoiceStatus] =
     useState('idle');
 
+=======
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
   if (!artifact) {
     return null;
   }
@@ -177,6 +191,13 @@ export default function ArtifactPanel({
         strings.thinking
       );
 
+<<<<<<< HEAD
+=======
+      /*
+        GET CONTEXT
+        FROM FIREBASE
+      */
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
       let context =
         '';
 
@@ -275,11 +296,17 @@ export default function ArtifactPanel({
   }
 
   async function startListening() {
-    if (!hasExplained) {
-      setAiText(strings.chatDisabled);
+    if (
+      !hasExplained
+    ) {
+      setAiText(
+        strings.chatDisabled
+      );
+
       return;
     }
 
+<<<<<<< HEAD
     const ws = wsRef.current;
 
     if (voiceStatus === 'recording') {
@@ -288,10 +315,23 @@ export default function ArtifactPanel({
       setVoiceStatus('processing');
 
       setAiText(strings.thinking);
+=======
+    const SpeechRecognition =
+      window.SpeechRecognition ||
+      window.webkitSpeechRecognition;
+
+    if (
+      !SpeechRecognition
+    ) {
+      alert(
+        'Speech Recognition unsupported.'
+      );
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
       return;
     }
 
+<<<<<<< HEAD
     if (!wsReady || voiceStatus === 'processing') {
       setAiText('Voice service not connected.');
       return;
@@ -345,6 +385,49 @@ export default function ArtifactPanel({
     setVoiceStatus('recording');
 
     setAiText(strings.listening);
+=======
+    const recognition =
+      new SpeechRecognition();
+
+    recognition.lang =
+      lang;
+
+    recognition.interimResults =
+      false;
+
+    recognition.maxAlternatives =
+      1;
+
+    setAiText(
+      strings.listening
+    );
+
+    recognition.start();
+
+    recognition.onresult =
+      async (
+        event
+      ) => {
+        const text =
+          event.results[0][0]
+            .transcript;
+
+        setAiText(
+          `${strings.youAsked}: "${text}"`
+        );
+
+        await askMuse(
+          text,
+          artifact.id
+        );
+      };
+
+    recognition.onerror =
+      () =>
+        setAiText(
+          strings.voiceError
+        );
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
   }
 
   function listenToArtifact() {
@@ -469,12 +552,20 @@ export default function ArtifactPanel({
           </div>
 
           <div
+<<<<<<< HEAD
             className="ai-box"
             style={{
               overflow: 'visible',
               position: 'relative',
               zIndex: 2
             }}
+=======
+            className={`ai-box${
+              isExpanded
+                ? ''
+                : ' collapsed'
+            }`}
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
           >
             <div className="ai-header">
               <div>
@@ -506,6 +597,7 @@ export default function ArtifactPanel({
                   : strings.expandInsight}
               </button>
             </div>
+<<<<<<< HEAD
 
             {isExpanded && (
               <>
@@ -612,6 +704,88 @@ export default function ArtifactPanel({
                   </button>
                 </div>
               </>
+=======
+
+            <p
+              className="ai-text"
+              style={{
+                lineHeight:
+                  '1.9',
+                color:
+                  '#4b3d2e'
+              }}
+            >
+              {
+                isExpanded
+                  ? aiText
+                  : ''
+              }
+            </p>
+
+            {isExpanded && (
+              <div
+                className="question-input chat-input"
+                style={{
+                  marginTop:
+                    '24px'
+                }}
+              >
+                <input
+                  type="text"
+                  placeholder={
+                    strings.askQuestion
+                  }
+                  value={
+                    typedQuestion
+                  }
+                  onChange={e =>
+                    setTypedQuestion(
+                      e.target.value
+                    )
+                  }
+                  onKeyDown={e =>
+                    e.key ===
+                      'Enter' &&
+                    handleTypedAsk(
+                      artifact.id
+                    )
+                  }
+                  disabled={
+                    !hasExplained
+                  }
+                />
+
+                <button
+                  className="gold-btn"
+                  onClick={() =>
+                    handleTypedAsk(
+                      artifact.id
+                    )
+                  }
+                  disabled={
+                    !hasExplained ||
+                    !typedQuestion.trim() ||
+                    chatLoading
+                  }
+                >
+                  {
+                    strings.askBtn
+                  }
+                </button>
+
+                <button
+                  className="glass-btn"
+                  onClick={
+                    startListening
+                  }
+                  disabled={
+                    !hasExplained
+                  }
+                >
+                  <MicrophoneIcon />
+                </button>
+              </div>
+>>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
             )}
           </div>
 
