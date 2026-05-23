@@ -5,6 +5,8 @@ const { Server } = require("socket.io");
 const path = require("path");
 const WebSocket = require("ws");
 const os = require("os");
+const fs = require('fs');
+const multer = require('multer');
 
 const app = express();
 const server = http.createServer(app);
@@ -21,18 +23,8 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
-const fs = require('fs');
-const multer = require('multer');
-
 // Dynamic museum collection name (defaults to 'artifacts')
 let MUSEUM_COLLECTION = process.env.MUSEUM_COLLECTION || 'artifacts';
-
-const fs = require('fs');
-const multer = require('multer');
-
-// Dynamic museum collection name (defaults to 'artifacts')
-let MUSEUM_COLLECTION = process.env.MUSEUM_COLLECTION || 'artifacts';
-
 
 /*
   OPENCLAW API
@@ -49,7 +41,6 @@ const OPENCLAW_URL =
 const BLYNK_TOKEN = process.env.BLYNK_TOKEN || '';
 const BLYNK_PIN   = process.env.BLYNK_PIN   || 'V0';
 
-<<<<<<< HEAD
 /*
   PIPER TTS CONFIG
   Edit these to match your install paths, or set in .env
@@ -58,48 +49,9 @@ const PIPER_EXE        = process.env.PIPER_EXE        || 'C:\\piper\\piper.exe';
 const PIPER_MODEL_PATH = process.env.PIPER_MODEL_PATH || 'C:\\piper\\models\\en_US-lessac-medium.onnx';
 const WHISPER_MODEL = process.env.WHISPER_MODEL || 'base';
 
-/**
- * Sends a robot command array to the ESP32 via Blynk.
-=======
-/**
- * Sends a robot command array to the ESP32 via Blynk.
- * The commands array (JSON string) is written to the configured virtual pin.
- *
- * @param {Array} commands - Array of instruction objects from pathToInstructions()
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
- */
-async function sendToBlynk(commands) {
-  if (!BLYNK_TOKEN) {
-    console.warn('[Blynk] BLYNK_TOKEN not set — skipping Blynk push');
-    return;
-  }
-
-  const json = JSON.stringify(commands);
-
-<<<<<<< HEAD
-=======
-  // Blynk HTTP API: update a virtual pin value
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
-  const url =
-    `https://blynk.cloud/external/api/update` +
-    `?token=${BLYNK_TOKEN}` +
-    `&${BLYNK_PIN}=${encodeURIComponent(json)}`;
-
-  const res = await fetch(url);
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Blynk update failed: ${res.status} ${body}`);
-  }
-
-  console.log(`[Blynk] Commands sent to ${BLYNK_PIN}:`, json);
-}
-
-<<<<<<< HEAD
-
 // ── Firebase setup ─────────────────────────────────────────────────
 const { initializeApp } = require('firebase/app');
-const { getFirestore, doc, updateDoc, serverTimestamp, collection, addDoc } = require('firebase/firestore');
+const { getFirestore, doc, getDoc, updateDoc, serverTimestamp, collection, addDoc } = require('firebase/firestore');
 const firebaseApp = initializeApp({
   apiKey:            process.env.VITE_FIREBASE_API_KEY,
   authDomain:        process.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -111,14 +63,12 @@ const firebaseApp = initializeApp({
 
 const db = getFirestore(firebaseApp);
 
-
 // ── Token → Blynk auth map (one per device) ───────────────────────
 const SECURITY_DEVICES = [
-  { token: 'MOS49nmG1jWz0S6tFh9pB_kZBP_tMXA7', artifactId: 'ART_001' },
-  { token: 'tlCpzyeNmk9y8PkGDyBa_X8SNN276dEx', artifactId: 'ART_002' },
-  { token: 'ReusV5d3iekLMA1eFMvDGsPKILwqvU1J', artifactId: 'ART_003' },
+  { token: 'MOS49nmG1jWz0S6tFh9pB_kZBP_tMXA7', artifactId: 'ART_001', botId: 'BOT_001' },
+  { token: 'tlCpzyeNmk9y8PkGDyBa_X8SNN276dEx', artifactId: 'ART_002', botId: 'BOT_002' },
+  { token: 'ReusV5d3iekLMA1eFMvDGsPKILwqvU1J', artifactId: 'ART_003', botId: 'BOT_001' },
 ];
-
 const alertStates = {};
 
 async function pollSecuritySensors() {
@@ -136,12 +86,10 @@ async function pollSecuritySensors() {
         const parsed = JSON.parse(raw);
         isAlert = parsed.alert === 1;
       } catch {
-        // fallback: plain 0/1
         isAlert = raw.trim() === '1';
       }
 
       const wasAlert = alertStates[device.artifactId];
-
       if (isAlert === wasAlert) continue;
 
       alertStates[device.artifactId] = isAlert;
@@ -152,23 +100,50 @@ async function pollSecuritySensors() {
       const statusStr = `${device.artifactId}:${isAlert ? 'alert' : 'on_display'}`;
       await fetch(`https://blynk.cloud/external/api/update?token=${LCD_TOKEN}&V4=${encodeURIComponent(statusStr)}`);
 
-      await updateDoc(doc(db, MUSEUM_COLLECTION, device.artifactId), {
-        status: isAlert ? 'alert' : 'on_display',
-        lastUpdated: serverTimestamp(),
-      });
+      if (isAlert) {
+        await updateDoc(doc(db, MUSEUM_COLLECTION, device.artifactId), {
+          status: 'alert',
+          lastUpdated: serverTimestamp(),
+        });
 
-if (isAlert) {
-  await triggerBlynkAlarm(device.token, device.artifactId);
+        await updateDoc(doc(db, 'bots', device.botId), {
+          status: 'alert',
+          lastUpdated: serverTimestamp(),
+        });
 
-  // Log to security_logs collection
-  await addDoc(collection(db, 'security_logs'), {
-    Artifact_Id: device.artifactId,
-    robot_in_alert: null,
-    timestamp: serverTimestamp(),
-  });
+        await triggerBlynkAlarm(device.token, device.artifactId);
 
-  console.log(`[Security] Log added for ${device.artifactId}`);
-}
+        const botSnap = await getDoc(doc(db, 'bots', device.botId));
+        const botName = botSnap.exists() ? (botSnap.data().name || device.botId) : device.botId;
+
+        await addDoc(collection(db, 'security_logs'), {
+          Artifact_Id: device.artifactId,
+          robot_in_alert: botName,
+          timestamp: serverTimestamp(),
+        });
+
+        console.log(`[Security] Log added for ${device.artifactId} — bot: ${botName}`);
+
+      } else {
+        setTimeout(async () => {
+          try {
+            await updateDoc(doc(db, MUSEUM_COLLECTION, device.artifactId), {
+              status: 'on_display',
+              lastUpdated: serverTimestamp(),
+            });
+
+            await updateDoc(doc(db, 'bots', device.botId), {
+              status: 'charging',
+              lastUpdated: serverTimestamp(),
+            });
+
+            console.log(`[Security] Cleared ${device.artifactId} (${device.botId}) after 10s delay`);
+          } catch (err) {
+            console.error(`[Security] Delayed clear failed:`, err.message);
+          }
+        }, 5000);
+      }
+
       io.emit('securityAlert', { artifactId: device.artifactId, alert: isAlert });
 
     } catch (err) {
@@ -176,11 +151,10 @@ if (isAlert) {
     }
   }
 }
-
+ 
 setInterval(pollSecuritySensors, 2000);
 
 async function triggerBlynkAlarm(token, artifactId) {
-  // Write 1 to V5 on the specific device to trigger its sound widget
   const url = `https://blynk.cloud/external/api/update?token=${token}&V5=1`;
   const res = await fetch(url);
   if (!res.ok) {
@@ -194,8 +168,35 @@ async function triggerBlynkAlarm(token, artifactId) {
   }, 5000);
 }
 
-=======
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
+/**
+ * Sends a robot command array to the ESP32 via Blynk.
+ * The commands array (JSON string) is written to the configured virtual pin.
+ *
+ * @param {Array} commands - Array of instruction objects from pathToInstructions()
+ */
+async function sendToBlynk(commands) {
+  if (!BLYNK_TOKEN) {
+    console.warn('[Blynk] BLYNK_TOKEN not set — skipping Blynk push');
+    return;
+  }
+
+  const json = JSON.stringify(commands);
+
+  // Blynk HTTP API: update a virtual pin value
+  const url =
+    `https://blynk.cloud/external/api/update` +
+    `?token=${BLYNK_TOKEN}` +
+    `&${BLYNK_PIN}=${encodeURIComponent(json)}`;
+
+  const res = await fetch(url);
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Blynk update failed: ${res.status} ${body}`);
+  }
+
+  console.log(`[Blynk] Commands sent to ${BLYNK_PIN}:`, json);
+}
 
 /*
   SIMPLE IN-MEMORY VISITOR MEMORY
@@ -206,8 +207,6 @@ const visitorMemories = new Map();
   GLOBAL MUSE PERSONALITY
 */
 const MUSE_SYSTEM_PROMPT = `
-
-<<<<<<< HEAD
 You are MUSE, the intelligence of a grand museum — precise, knowledgeable, and direct.
 
 RULES — NEVER BREAK THESE
@@ -226,46 +225,6 @@ WHEN APPROPRIATE
 `;
 
 // ── Expanded locale → language label map ──────────────────────────
-=======
-Your Personality
-You are a museum assistant named Muse. You are stationed in a grand, historic museum filled with wonders from across time and space. Your purpose is to enlighten and captivate visitors by sharing the fascinating stories behind the artifacts on display.
-
-Eloquent & Theatrical: Highly articulate with a grand, poetic vocabulary. You treat the museum floor as your stage.
-
-Courtly & Polite: Unfailingly well-mannered, addressing visitors with immense, old-world respect.
-
-Curious & Intellectual: Fascinated by human progress, enlightenment, and the stories behind objects.
-
-Calm yet Passionate: Unwaveringly composed, but intensely captivated by history.
-
-Rules
-Keep it Concise: Limit responses to 50–120 words.
-
-European Flair: Use sophisticated, slightly archaic language. Strictly avoid modern slang.
-
-Dramatic Politeness: Address visitors theatrically (e.g., "My dear friend," "My good sir," "Young scholar").
-
-Smooth & Natural: Never ramble or list dry statistics. Speak like a captivating storyteller, not a computer.
-
-When Explaining Artifacts
-The "Why" Matters: Explain why the object was vital to its time and how people interacted with it.
-
-Theatrical Storytelling: Frame the history through a lens of human struggle, ingenuity, or a grand scheme.
-
-One Memorable Detail: Include a sharp, memorable anecdote or a witty observation.
-
-Bridge to History: Make the visitor feel the tangible reality of the past.
-
-If Appropriate
-Express refined wonder at human achievement.
-
-Ask sharp, curiosity-inducing questions to challenge the visitor's intellect.
-
-Use a touch of dry irony or gentlemanly wit.
-`;
-
-// ─── REPLACE buildMusePrompt with this ───────────────────────────────────────
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 const LOCALE_TO_LANGUAGE = {
   'en-US': 'English',
   'hi-IN': 'Hindi',
@@ -297,70 +256,56 @@ CRITICAL LANGUAGE RULE:
 You MUST respond ONLY in ${languageLabel}. This is non-negotiable.
 Do NOT respond in English unless the selected language is English.
 Do NOT mix languages. Every word of your response must be in ${languageLabel}.`;
-<<<<<<< HEAD
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED EXEC HELPER
+// ─────────────────────────────────────────────────────────────────────────────
+function run(cmd) {
+  return new Promise((resolve, reject) => {
+    console.log(`[exec] ${cmd}`);
+    require('child_process').exec(cmd, { timeout: 120000 }, (err, stdout, stderr) => {
+      if (err) return reject(new Error(stderr || err.message));
+      resolve(stdout);
+    });
+  });
+}
+
+async function callOpenclaw(payload) {
+  const res = await fetch(OPENCLAW_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`OpenClaw request failed: ${res.status} ${text}`);
+  }
+
+  return res.json();
 }
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-const uploadDir = path.join(
-  __dirname,
-  'src',
-  'public',
-  'images',
-);
+const uploadDir = path.join(__dirname, 'src', 'public', 'images');
 
 console.log('UPLOAD DIR:', uploadDir);
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-=======
-}
-app.use(express.json({ limit: '10mb' }));
-
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-const uploadDir = path.join(
-  __dirname,
-  'src',
-  'public',
-  'images',
-);
-
-console.log('UPLOAD DIR:', uploadDir);
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, {
-    recursive: true
-  });
-}
-
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 const storage = multer.diskStorage({
   destination: (_, __, cb) => {
     cb(null, uploadDir);
   },
-<<<<<<< HEAD
   filename: (_, file, cb) => {
     cb(null, 'current-map' + path.extname(file.originalname));
   }
 });
 
 const upload = multer({ storage });
-=======
-
-  filename: (_, file, cb) => {
-    cb(
-      null,
-      'current-map' +
-      path.extname(file.originalname)
-    );
-  }
-});
-
-const upload =
-  multer({ storage });
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
 app.use(
   '/uploads',
@@ -369,14 +314,7 @@ app.use(
     lastModified: false,
     cacheControl: false,
     setHeaders: (res) => {
-<<<<<<< HEAD
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-=======
-      res.setHeader(
-        'Cache-Control',
-        'no-store, no-cache, must-revalidate, proxy-revalidate'
-      );
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
     }
@@ -522,7 +460,6 @@ Your task:
 
 app.post("/api/ask", async (req, res) => {
   try {
-<<<<<<< HEAD
     const {
       question,
       context,
@@ -530,15 +467,6 @@ app.post("/api/ask", async (req, res) => {
       language = "en-US",
       mapContext
     } = req.body;
-=======
-const {
-  question,
-  context,
-  visitorType,
-  language = "en-US",
-  mapContext
-} = req.body;
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
     const sessionId = req.headers["x-session-id"] || "default";
     const memory = getVisitorMemory(sessionId);
@@ -554,33 +482,16 @@ const {
       }
     }
 
-<<<<<<< HEAD
+    // MAP CONTEXT — temporary only, does not pollute memory
     let dynamicContext = null;
     if (mapContext) {
       dynamicContext = {
         role: "system",
         content: `
-=======
-    /*
-      MAP CONTEXT
-      TEMPORARY ONLY
-      DOES NOT POLLUTE MEMORY
-    */
-    let dynamicContext =
-      null;
-if (mapContext) {
-  dynamicContext = {
-    role: "system",
-    content: `
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 You are helping a museum visitor navigate.
 
 Museum locations:
-${
-  mapContext.locations
-    ?.map(l => `- ${l.label}`)
-    .join("\n")
-}
+${mapContext.locations?.map(l => `- ${l.label}`).join("\n")}
 
 Visitor current location:
 ${mapContext.currentLocation || "Unknown"}
@@ -612,55 +523,17 @@ Wrong examples:
 Keep responses concise.
 Never invent locations.
 `
-  };
-}
+      };
+    }
 
     saveToMemory(memory, "user", question);
 
-<<<<<<< HEAD
     const messages = [
       {
         role: "system",
         content: systemPrompt
       }
     ];
-=======
-    /*
-      BUILD MESSAGE LIST
-      SAFE FOR OTHER PAGES
-    */
-const messages = [
-  {
-    role: "system",
-    content:
-      systemPrompt
-  }
-];
-
-/*
-  ARTIFACT CONTEXT
-*/
-if (context) {
-  messages.push({
-    role: "system",
-    content: `
-Current artifact context:
-
-${context}
-
-IMPORTANT RULES:
-- Answer based on this artifact
-- Stay museum focused
-- Use the context when relevant
-- If the visitor asks
-  about the object,
-  assume they mean
-  the currently opened
-  artifact
-`
-  });
-}
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
     if (context) {
       messages.push({
@@ -686,44 +559,11 @@ IMPORTANT RULES:
 
     messages.push(...memory.slice(-12));
 
-<<<<<<< HEAD
     const data = await callOpenclaw({
       model: "gemma4:31b-cloud",
       messages,
       temperature: 0.7,
       max_tokens: 180
-=======
-        messages,
-
-        temperature:
-          0.7,
-
-        max_tokens:
-          180
-      });
-
-let answer = data.choices?.[0]?.message?.content || "I could not answer that.";
-
-// Server-side safety net: if the question sounds navigational but AI forgot the tag, add it
-const navKeywords = ['go to', 'take me', 'navigate', 'where is', 'find the', 'how do i get'];
-const isNavQuestion = navKeywords.some(kw => question.toLowerCase().includes(kw));
-if (isNavQuestion && !answer.startsWith('[NAVIGATION]')) {
-  answer = '[NAVIGATION] ' + answer;
-}
-
-    /*
-      SAVE AI RESPONSE
-    */
-    saveToMemory(
-      memory,
-      "assistant",
-      answer
-    );
-
-    res.json({
-      success: true,
-      text: answer
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
     });
 
     let answer = data.choices?.[0]?.message?.content || "I could not answer that.";
@@ -753,7 +593,6 @@ app.post("/api/reset-memory", (req, res) => {
   res.json({ success: true });
 });
 
-
 /*
   ROBOT POSITION
 */
@@ -762,81 +601,10 @@ let robotPosition = {
   y: 48
 };
 
-<<<<<<< HEAD
-=======
-/*
-  GET CURRENT POSITION
-*/
-
-
-app.post('/api/robot-position', (req, res) => {
-  const { x, y } = req.body || {};
-
-  if (typeof x === 'number' && typeof y === 'number') {
-    robotPosition = { x, y };
-    io.emit('robotPosition', robotPosition); // ← ADD THIS
-  }
-
-  res.json({ success: true, position: robotPosition });
-});
-async function pollBlynkPosition() {
-  if (!BLYNK_TOKEN) return;
-
-  try {
-    const res = await fetch(
-      `https://blynk.cloud/external/api/get?token=${BLYNK_TOKEN}&pin=V2`
-    );
-
-    if (!res.ok) {
-      console.warn('[Blynk Poll] HTTP error:', res.status);
-      return;
-    }
-
-    const raw = await res.text();
-
-    let x, y, heading = 0;
-
-    if (typeof raw === 'string' && raw.includes(',')) {
-      const parts = raw.trim().split(',');
-      x = parseFloat(parts[0]);
-      y = parseFloat(parts[1]);
-      heading = parseFloat(parts[2]) || 0;
-
-    } else {
-      try {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length >= 2) {
-          x = parseFloat(parsed[0]);
-          y = parseFloat(parsed[1]);
-          heading = parseFloat(parsed[2]) || 0;
-        } else {
-          console.warn('[Blynk Poll] Unexpected JSON shape:', parsed);
-          return;
-        }
-      } catch {
-        console.warn('[Blynk Poll] Could not parse:', raw);
-        return;
-      }
-    }
-
-    if (!isNaN(x) && !isNaN(y)) {
-      robotPosition = { x, y, heading };
-      io.emit('robotPosition', robotPosition);
-      console.log(`[Blynk Poll] Position updated → x=${x} y=${y} hdg=${heading}`);
-    }
-
-  } catch (err) {
-    console.error('[Blynk Poll] Failed:', err.message);
-  }
-}
-
-
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 app.get('/api/robot-position', (req, res) => {
   res.json(robotPosition);
 });
 
-<<<<<<< HEAD
 app.post('/api/robot-position', (req, res) => {
   const { x, y } = req.body || {};
 
@@ -848,7 +616,6 @@ app.post('/api/robot-position', (req, res) => {
   res.json({ success: true, position: robotPosition });
 });
 
-// ── Poll robot position from Blynk V2 ─────────────────────────────
 async function pollBlynkPosition() {
   if (!BLYNK_TOKEN) return;
 
@@ -900,36 +667,8 @@ async function pollBlynkPosition() {
 }
 
 setInterval(pollBlynkPosition, 1000);
-=======
-setInterval(pollBlynkPosition, 1000);
-
-
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
-
-
-async function callOpenclaw(payload) {
-  const res = await fetch(OPENCLAW_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`OpenClaw request failed: ${res.status} ${text}`);
-  }
-
-  return res.json();
-}
-
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PIPER TTS  —  POST /api/tts
-// speak.js on the client calls this. Returns a WAV file.
-// ─────────────────────────────────────────────────────────────────────────────
 
 // Map short lang codes (from speak.js) to Piper model paths
-// Add or change entries here to match the model files you have installed
 const TTS_MODELS = {
   'en': process.env.PIPER_MODEL_EN || PIPER_MODEL_PATH,
   'hi': process.env.PIPER_MODEL_HI || 'C:\\piper\\models\\hi_IN-priyamvada-medium.onnx',
@@ -945,7 +684,6 @@ app.post('/api/tts', async (req, res) => {
   const text = (req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'No text provided' });
 
-  // lang comes from speak.js as the first part of the locale, e.g. 'hi' from 'hi-IN'
   const lang = (req.body?.lang || 'en').split('-')[0].toLowerCase();
   const modelPath = TTS_MODELS[lang] || TTS_MODELS['en'];
 
@@ -954,7 +692,6 @@ app.post('/api/tts', async (req, res) => {
   const outPath = path.join(os.tmpdir(), `tts_${timestamp}.wav`);
 
   try {
-    // Write text to a temp file so special characters and newlines are safe
     fs.writeFileSync(txtPath, text, 'utf8');
 
     await run(
@@ -976,16 +713,10 @@ app.post('/api/tts', async (req, res) => {
   }
 });
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // VOICE WEBSOCKET  —  ws://host:PORT/voice
-//
-// Separate from socket.io so binary audio frames don't collide with JSON.
-// Pipeline: webm blob → ffmpeg → WAV → Whisper → /api/ask → reply JSON
 // ─────────────────────────────────────────────────────────────────────────────
-
 const voiceWss = new WebSocket.Server({ server, path: '/voice' });
-
 
 voiceWss.on('connection', (ws, req) => {
   const clientIP = req.socket.remoteAddress;
@@ -995,7 +726,7 @@ voiceWss.on('connection', (ws, req) => {
 
   ws.on('message', async (data, isBinary) => {
 
-    // ── JSON control frame (voiceMeta carries the language) ──────
+    // ── JSON control frame ──────────────────────────────────────────
     if (!isBinary) {
       try {
         const msg = JSON.parse(data.toString());
@@ -1007,7 +738,7 @@ voiceWss.on('connection', (ws, req) => {
       return;
     }
 
-    // ── Binary frame = audio blob ─────────────────────────────────
+    // ── Binary frame = audio blob ───────────────────────────────────
     console.log(`[VoiceWS] Audio received: ${data.length} bytes`);
 
     const inputPath = path.join(os.tmpdir(), `voice_${Date.now()}.webm`);
@@ -1019,11 +750,11 @@ voiceWss.on('connection', (ws, req) => {
       await run(`ffmpeg -y -i "${inputPath}" -ar 16000 -ac 1 "${wavPath}"`);
 
       const transcriptBase = wavPath.replace('.wav', '');
-const whisperLang = pendingLang.split('-')[0];
+      const whisperLang = pendingLang.split('-')[0];
 
-await run(
-  `python -m whisper "${wavPath}" --model ${WHISPER_MODEL} --language ${whisperLang} --output_format txt --output_dir "${path.dirname(wavPath)}"`
-);
+      await run(
+        `python -m whisper "${wavPath}" --model ${WHISPER_MODEL} --language ${whisperLang} --output_format txt --output_dir "${path.dirname(wavPath)}"`
+      );
 
       const transcriptPath = `${transcriptBase}.txt`;
       let userText = '';
@@ -1042,7 +773,7 @@ await run(
         },
         body: JSON.stringify({
           question: userText,
-          language: pendingLang        // ← uses client's selected language
+          language: pendingLang
         })
       });
 
@@ -1075,22 +806,6 @@ await run(
   ws.on('error', (e) => console.error('[VoiceWS]', e.message));
 });
 
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SHARED EXEC HELPER
-// ─────────────────────────────────────────────────────────────────────────────
-
-function run(cmd) {
-  return new Promise((resolve, reject) => {
-    console.log(`[exec] ${cmd}`);
-    require('child_process').exec(cmd, { timeout: 120000 }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(stderr || err.message));
-      resolve(stdout);
-    });
-  });
-}
-
-
 /*
   SOCKET.IO
   TOUCHSCREEN ↔ ROBOT
@@ -1106,13 +821,12 @@ io.on("connection", socket => {
     });
   });
 
-<<<<<<< HEAD
   socket.on("visitorMessage", async data => {
     try {
       const {
         message,
         sessionId = socket.id,
-        language = 'en-US'        // accept language from the client
+        language = 'en-US'
       } = data;
 
       const memory = getVisitorMemory(sessionId);
@@ -1135,7 +849,6 @@ io.on("connection", socket => {
         "I could not respond.";
 
       saveToMemory(memory, "assistant", reply);
-
       socket.emit("museReply", { text: reply });
 
     } catch (err) {
@@ -1143,48 +856,6 @@ io.on("connection", socket => {
       socket.emit("museReply", { text: "Museum assistant unavailable." });
     }
   });
-=======
-  /*
-    OPTIONAL:
-    REALTIME MUSE CHAT
-  */
-// ─── REPLACE the visitorMessage socket handler with this ─────────────────────
-socket.on("visitorMessage", async data => {
-  try {
-    const {
-      message,
-      sessionId = socket.id,
-      language = 'en-US'          // ← accept language from the client
-    } = data;
-
-    const memory = getVisitorMemory(sessionId);
-    saveToMemory(memory, "user", message);
-
-    const systemPrompt = buildMusePrompt(language);  // ← use it here
-
-    const result = await callOpenclaw({
-      model: "gemma4:31b-cloud",
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...memory.slice(-8)
-      ],
-      temperature: 0.7,
-      max_tokens: 180
-    });
-
-    const reply =
-      result.choices?.[0]?.message?.content ||
-      "I could not respond.";
-
-    saveToMemory(memory, "assistant", reply);
-    socket.emit("museReply", { text: reply });
-
-  } catch (err) {
-    console.error(err);
-    socket.emit("museReply", { text: "Museum assistant unavailable." });
-  }
-});
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
   socket.on("disconnect", () => {
     console.log("Touchscreen disconnected");
@@ -1196,11 +867,7 @@ app.post('/api/navigate', async (req, res) => {
     destination,
     coordinates,
     source,
-<<<<<<< HEAD
     instructions
-=======
-    instructions   // array of robot instructions from pathToInstructions()
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
   } = req.body || {};
 
   console.log('========== NAVIGATION REQUEST ==========');
@@ -1210,10 +877,6 @@ app.post('/api/navigate', async (req, res) => {
   console.log('Instructions:', instructions?.length ?? 0, 'steps');
   console.log('========================================');
 
-<<<<<<< HEAD
-=======
-  // Nothing to drive without instructions
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
   if (!instructions || instructions.length === 0) {
     console.warn('[Navigate] No instructions received — skipping Blynk push');
     return res.json({ success: true, blynk: false, reason: 'no instructions' });
@@ -1224,10 +887,7 @@ app.post('/api/navigate', async (req, res) => {
     res.json({ success: true, blynk: true, steps: instructions.length });
   } catch (err) {
     console.error('[Navigate] Blynk push failed:', err.message);
-<<<<<<< HEAD
-=======
     // Still return success to the UI — the nav was planned; Blynk is optional hardware
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
     res.json({ success: true, blynk: false, reason: err.message });
   }
 });
@@ -1242,41 +902,17 @@ app.post('/api/dev-unlock', (req, res) => {
   }
 });
 
-
-<<<<<<< HEAD
 app.post('/api/save-map', async (req, res) => {
   try {
     const mapData = req.body;
 
-    const filePath = path.join(
-      __dirname,
-      'src',
-      'utils',
-      'mapData.js'
-    );
+    const filePath = path.join(__dirname, 'src', 'utils', 'mapData.js');
 
     const fileContent = `
-=======
-app.post(
-  '/api/save-map',
-  async (req, res) => {
-    try {
-      const mapData = req.body;
-
-      const filePath = path.join(
-        __dirname,
-        'src',
-        'utils',
-        'mapData.js'
-      );
-
-      const fileContent = `
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 export const GRID_STEP =
   ${mapData.GRID_STEP};
 
 export const ZONE_RECTS =
-<<<<<<< HEAD
   ${JSON.stringify(mapData.ZONE_RECTS, null, 2)};
 
 export const ZONE_CONNECTIONS =
@@ -1287,41 +923,13 @@ export const NAV_NODES =
 
 export const LOCATIONS =
   ${JSON.stringify(mapData.LOCATIONS, null, 2)};
-=======
-  ${JSON.stringify(
-    mapData.ZONE_RECTS,
-    null,
-    2
-  )};
 
-export const ZONE_CONNECTIONS =
-  ${JSON.stringify(
-    mapData.ZONE_CONNECTIONS,
-    null,
-    2
-  )};
-
-export const NAV_NODES =
-  ${JSON.stringify(
-    mapData.NAV_NODES,
-    null,
-    2
-  )};
-
-export const LOCATIONS =
-  ${JSON.stringify(
-    mapData.LOCATIONS,
-    null,
-    2
-  )};
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 export const ZONE_NODE_KEYS = new Map(
   Object.entries(${JSON.stringify(mapData.ZONE_NODE_KEYS || {}, null, 2)})
     .map(([k, v]) => [k, new Set(v)])
 );
 `;
 
-<<<<<<< HEAD
     fs.writeFileSync(filePath, fileContent, 'utf8');
 
     console.log('✓ mapData.js updated');
@@ -1334,67 +942,27 @@ export const ZONE_NODE_KEYS = new Map(
   }
 });
 
-=======
-      fs.writeFileSync(
-        filePath,
-        fileContent,
-        'utf8'
-      );
+app.post('/api/upload-map-image', upload.single('map'), (req, res) => {
+  console.log('Upload received:', req.file?.filename);
+  console.log('Files in uploadDir:', fs.readdirSync(uploadDir));
 
-      console.log(
-        '✓ mapData.js updated'
-      );
-
-      res.json({
-        success: true
-      });
-
-    } catch (err) {
-      console.error(
-        'Save map failed:',
-        err
-      );
-
-      res.status(500).json({
-        success: false
-      });
-    }
+  if (!req.file) {
+    return res.status(400).json({ success: false });
   }
-);
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
-app.post(
-  '/api/upload-map-image',
-  upload.single('map'),
-  (req, res) => {
-    console.log('Upload received:', req.file?.filename);
-<<<<<<< HEAD
-    console.log('Files in uploadDir:', fs.readdirSync(uploadDir));
-=======
-    console.log('Files in uploadDir:', fs.readdirSync(uploadDir)); // ← add this
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
-    if (!req.file) {
-      return res.status(400).json({ success: false });
-    }
-
-    const existing = fs.readdirSync(uploadDir);
-    existing
-      .filter(f => f.startsWith('current-map') && f !== req.file.filename)
-      .forEach(f => {
-<<<<<<< HEAD
-        console.log('Deleting:', f);
-=======
-        console.log('Deleting:', f); 
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
-        fs.unlinkSync(path.join(uploadDir, f));
-      });
-
-    res.json({
-      success: true,
-      imageUrl: `/uploads/${req.file.filename}`
+  const existing = fs.readdirSync(uploadDir);
+  existing
+    .filter(f => f.startsWith('current-map') && f !== req.file.filename)
+    .forEach(f => {
+      console.log('Deleting:', f);
+      fs.unlinkSync(path.join(uploadDir, f));
     });
-  }
-);
+
+  res.json({
+    success: true,
+    imageUrl: `/uploads/${req.file.filename}`
+  });
+});
 
 // Upload museum logo (dev mode)
 const logoStorage = multer.diskStorage({
@@ -1411,10 +979,8 @@ app.post('/api/upload-logo', uploadLogo.single('logo'), (req, res) => {
   res.json({ success: true, imageUrl: `/uploads/${req.file.filename}` });
 });
 
-<<<<<<< HEAD
 app.get('/api/map-image', (req, res) => {
   const files = fs.readdirSync(uploadDir);
-
   const mapFile = files.find(file => file.startsWith('current-map'));
 
   if (!mapFile) {
@@ -1424,43 +990,7 @@ app.get('/api/map-image', (req, res) => {
   res.json({ imageUrl: `/uploads/${mapFile}` });
 });
 
-
 app.get("/{*path}", (req, res) => {
-=======
-app.get(
-  '/api/map-image',
-  (req, res) => {
-
-    const files =
-      fs.readdirSync(uploadDir);
-
-    const mapFile =
-      files.find(file =>
-        file.startsWith(
-          'current-map'
-        )
-      );
-
-    if (!mapFile) {
-      return res.json({
-        imageUrl:
-          '/images/museum-map.png'
-      });
-    }
-
-    res.json({
-      imageUrl:
-        `/uploads/${mapFile}`
-    });
-  }
-);
-
-
-app.get("/{*path}", (req, res) => {
-  // SPA fallback for client-side routes.
-  // React Router pages rely on browser navigation Accept: text/html.
-  // For other resource requests (assets/json), return 404 to avoid masking errors.
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
   const accept = req.headers.accept || "";
   if (accept.includes("text/html")) {
     res.sendFile(path.join(__dirname, "dist", "index.html"));
@@ -1469,7 +999,6 @@ app.get("/{*path}", (req, res) => {
 
   res.status(404).end();
 });
-
 
 /*
   START SERVER

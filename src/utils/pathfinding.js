@@ -145,12 +145,8 @@ function edgeBearing(from, to) {
       const segDist    = dist(currentNode, neighbor);
       const segBearing = edgeBearing(currentNode, neighbor);
       const turnDeg    = curBearing !== null ? bearingDelta(curBearing, segBearing) : 0;
-<<<<<<< HEAD
-      const tentG      = g(current) + segDist + turnDeg * TURN_PENALTY;
-=======
 const turnFactor = turnDeg / 180; 
 const tentG = g(current) + segDist + (turnFactor * TURN_PENALTY);
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
       if (tentG < g(nid)) {
         cameFrom.set(nid, current);

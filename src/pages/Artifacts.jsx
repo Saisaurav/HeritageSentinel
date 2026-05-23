@@ -11,10 +11,6 @@ import { askMuse } from '../utils/api';
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 import { COLLECTIONS, getArtifactsCollectionName } from '../services/firebaseService';
-<<<<<<< HEAD
-=======
-
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
 export default function Artifacts({
   assistantText,
@@ -32,7 +28,6 @@ export default function Artifacts({
   const [displayedText, setDisplayedText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
 
-<<<<<<< HEAD
   const cancelTyping = useRef(false);
 
   useEffect(() => {
@@ -68,57 +63,6 @@ export default function Artifacts({
       window.removeEventListener('artifactsCollectionChanged', handleCollectionChange);
     };
   }, []);
-=======
-useEffect(() => {
-  async function fetchArtifacts() {
-    try {
-      // getArtifactsCollectionName() reads the live value AND hydrates
-      // from localStorage on first call, so this is correct both on
-      // initial mount and after Settings changes the collection at runtime.
-      const collectionName = getArtifactsCollectionName();
-
-      const querySnapshot = await getDocs(
-        collection(db, collectionName)
-      );
-
-      const data = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        // fallback: some documents store the URL under 'img'
-        image: doc.data().img || doc.data().image
-      }));
-
-      setArtifacts(data);
-    } catch (err) {
-      console.error("Failed to load artifacts:", err);
-    }
-  }
-
-  // Initial load — picks up any collection persisted from a previous session.
-  fetchArtifacts();
-
-  // Re-fetch whenever Settings (dev mode) switches the active collection.
-  // setArtifactsCollectionName() in firebaseService dispatches this event.
-  function handleCollectionChange() {
-    fetchArtifacts();
-  }
-
-  window.addEventListener('artifactsCollectionChanged', handleCollectionChange);
-
-  return () => {
-    window.removeEventListener('artifactsCollectionChanged', handleCollectionChange);
-  };
-  // Empty deps: register the listener once only.
-  // getArtifactsCollectionName() always reads the current live value.
-}, []);
-
-useEffect(() => {
-  function handleClick() {
-    setPreviewArtifact(
-      null
-    );
-  }
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
   useEffect(() => {
     function handleClick() {

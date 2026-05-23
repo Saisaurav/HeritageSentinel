@@ -1,11 +1,7 @@
 import { useState, useRef } from 'react';
 import { t } from '../utils/translations';
 import { speak, stopSpeaking } from '../utils/speak';
-import { db } from "../firebaseConfig";
-import {
-  doc,
-  getDoc
-} from "firebase/firestore";
+
 
 import {
   startVoiceRecognition,
@@ -60,13 +56,9 @@ export default function ArtifactPanel({
 }) {
   const lang =
     language ||
-<<<<<<< HEAD
-    localStorage.getItem('language') ||
-=======
     localStorage.getItem(
       'language'
     ) ||
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
     'en-US';
 
   const strings =
@@ -103,16 +95,6 @@ export default function ArtifactPanel({
     setIsExpanded
   ] = useState(false);
 
-<<<<<<< HEAD
-  const { wsRef, wsReady } = useVoiceWS();
-
-  const voiceSessionRef = useRef(null);
-
-  const [voiceStatus, setVoiceStatus] =
-    useState('idle');
-
-=======
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
   if (!artifact) {
     return null;
   }
@@ -191,13 +173,10 @@ export default function ArtifactPanel({
         strings.thinking
       );
 
-<<<<<<< HEAD
-=======
       /*
         GET CONTEXT
         FROM FIREBASE
       */
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
       let context =
         '';
 
@@ -306,16 +285,6 @@ export default function ArtifactPanel({
       return;
     }
 
-<<<<<<< HEAD
-    const ws = wsRef.current;
-
-    if (voiceStatus === 'recording') {
-      voiceSessionRef.current?.stop();
-
-      setVoiceStatus('processing');
-
-      setAiText(strings.thinking);
-=======
     const SpeechRecognition =
       window.SpeechRecognition ||
       window.webkitSpeechRecognition;
@@ -326,66 +295,10 @@ export default function ArtifactPanel({
       alert(
         'Speech Recognition unsupported.'
       );
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
       return;
     }
 
-<<<<<<< HEAD
-    if (!wsReady || voiceStatus === 'processing') {
-      setAiText('Voice service not connected.');
-      return;
-    }
-
-    const cleanup = onVoiceReply(ws, {
-      onUserText: (raw) => {
-        setAiText(`${strings.youAsked}: "${raw}"`);
-      },
-
-      onResult: async (aiText) => {
-        cleanup();
-
-        setVoiceStatus('idle');
-
-        setAiText(aiText);
-
-        speak(aiText, lang);
-      },
-
-      onError: (err) => {
-        cleanup();
-
-        console.error(err);
-
-        setVoiceStatus('idle');
-
-        setAiText(strings.voiceError);
-      },
-    });
-
-    voiceSessionRef.current = startVoiceRecognition({
-      lang,
-      ws,
-
-      onStop: () => {
-        setVoiceStatus('processing');
-      },
-
-      onError: (err) => {
-        cleanup();
-
-        console.error(err);
-
-        setVoiceStatus('idle');
-
-        setAiText(strings.voiceError);
-      },
-    });
-
-    setVoiceStatus('recording');
-
-    setAiText(strings.listening);
-=======
     const recognition =
       new SpeechRecognition();
 
@@ -427,7 +340,6 @@ export default function ArtifactPanel({
         setAiText(
           strings.voiceError
         );
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
   }
 
   function listenToArtifact() {
@@ -552,20 +464,11 @@ export default function ArtifactPanel({
           </div>
 
           <div
-<<<<<<< HEAD
-            className="ai-box"
-            style={{
-              overflow: 'visible',
-              position: 'relative',
-              zIndex: 2
-            }}
-=======
             className={`ai-box${
               isExpanded
                 ? ''
                 : ' collapsed'
             }`}
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
           >
             <div className="ai-header">
               <div>
@@ -597,114 +500,6 @@ export default function ArtifactPanel({
                   : strings.expandInsight}
               </button>
             </div>
-<<<<<<< HEAD
-
-            {isExpanded && (
-              <>
-                <p
-                  className="ai-text"
-                  style={{
-                    lineHeight:
-                      '1.9',
-                    color:
-                      '#4b3d2e'
-                  }}
-                >
-                  {aiText}
-                </p>
-
-                <div
-                  className="question-input chat-input"
-                  style={{
-                    marginTop:
-                      '24px',
-                    position:
-                      'relative',
-                    zIndex:
-                      9999,
-                    pointerEvents:
-                      'auto'
-                  }}
-                >
-                  <input
-                    type="text"
-                    placeholder={
-                      strings.askQuestion
-                    }
-                    value={
-                      typedQuestion
-                    }
-                    onChange={e =>
-                      setTypedQuestion(
-                        e.target.value
-                      )
-                    }
-                    onKeyDown={e =>
-                      e.key ===
-                        'Enter' &&
-                      handleTypedAsk(
-                        artifact.id
-                      )
-                    }
-                    disabled={
-                      !hasExplained
-                    }
-                  />
-
-                  <button
-                    className="gold-btn"
-                    onClick={() =>
-                      handleTypedAsk(
-                        artifact.id
-                      )
-                    }
-                    disabled={
-                      !hasExplained ||
-                      !typedQuestion.trim() ||
-                      chatLoading
-                    }
-                  >
-                    {
-                      strings.askBtn
-                    }
-                  </button>
-
-                  <button
-                    className="glass-btn"
-                    onClick={
-                      startListening
-                    }
-                    disabled={
-                      !hasExplained ||
-                      (!wsReady &&
-                        voiceStatus ===
-                          'idle')
-                    }
-                    style={
-                      voiceStatus ===
-                      'recording'
-                        ? {
-                            borderColor:
-                              '#e53935',
-                            color:
-                              '#e53935'
-                          }
-                        : {}
-                    }
-                  >
-                    {
-                      voiceStatus ===
-                      'recording'
-                        ? '●'
-                        : voiceStatus ===
-                          'processing'
-                        ? '...'
-                        : <MicrophoneIcon />
-                    }
-                  </button>
-                </div>
-              </>
-=======
 
             <p
               className="ai-text"
@@ -785,7 +580,6 @@ export default function ArtifactPanel({
                   <MicrophoneIcon />
                 </button>
               </div>
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
             )}
           </div>
 

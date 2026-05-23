@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 import { useState, useRef, useEffect, useCallback } from 'react';
-=======
-import { useState, useRef } from 'react';
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import socket from '../socket';
@@ -13,10 +9,7 @@ import { startVoiceRecognition, onVoiceReply } from '../utils/speechRecognition'
 import { typeText } from '../utils/typingEffect';
 import { askMuse as askMuseApi } from '../utils/api';
 import { stopSpeaking } from '../utils/speak';
-<<<<<<< HEAD
 import { useVoiceWS } from '../utils/useVoiceWS.js';
-=======
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
 
 // useBots and useArtifacts are stable — no composite index required
 import { useBots, useArtifacts } from '../hooks/useFirestore';
@@ -291,29 +284,18 @@ export default function Home({
   // Cancel token: set .current = true to stop any running typeText interval
   const cancelTyping = useRef(false);
 
-<<<<<<< HEAD
   // ── Voice pipeline (Whisper + Piper) ──
   const { wsRef, wsReady } = useVoiceWS();
-  const voiceSessionRef = useRef(null);  // holds { stop } from startVoiceRecognition
+  const voiceSessionRef = useRef(null);
   const [voiceStatus, setVoiceStatus] = useState('idle'); // 'idle' | 'recording' | 'processing'
 
-=======
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
   // ── Derived dashboard values ──
   const totalBots = bots?.length ?? '—';
   const totalArtifacts = artifacts?.length ?? '—';
 
-<<<<<<< HEAD
   const alertBots = (bots ?? []).filter((b) => b.status === 'alert');
   const activeAlerts = alertBots.length;
 
-=======
-  // Count bots in alert status directly — no alerts collection needed
-  const alertBots = (bots ?? []).filter((b) => b.status === 'alert');
-  const activeAlerts = alertBots.length;
-
-  // Artifact Alerts
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
   const alertArtifacts = (artifacts ?? []).filter((a) => a.status === 'alert');
   const activeArtifactAlerts = alertArtifacts.length;
 
@@ -332,10 +314,6 @@ export default function Home({
 
   const dashboardLoading = botsLoading || artifactsLoading;
 
-<<<<<<< HEAD
-=======
-  // All bot statuses for the fleet pill badges
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
   const botStatusCounts = (bots ?? []).reduce((acc, b) => {
     acc[b.status] = (acc[b.status] || 0) + 1;
     return acc;
@@ -352,16 +330,12 @@ export default function Home({
   }
 
   async function typeResponse(text) {
-<<<<<<< HEAD
-=======
-    // Kill any in-flight interval before starting a new one
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
     cancelTyping.current = true;
     await new Promise((r) => setTimeout(r, 0));
     cancelTyping.current = false;
 
     setIsTyping(true);
-    speak(text, language);   // ← now calls Piper via /api/tts
+    speak(text, language);
     setDisplayedText('');
 
     await typeText({
@@ -376,15 +350,7 @@ export default function Home({
     });
   }
 
-<<<<<<< HEAD
   // ── Voice: push-to-talk via Whisper + Piper ──────────────────────────────
-  //
-  // First press  → start recording mic
-  // Second press → stop recording, send audio to server
-  //
-  // Server pipeline: webm → ffmpeg → Whisper → /api/ask → voiceTranscript WS message
-  // Client on reply: displays "You asked: …", types + speaks the MUSE response
-
   async function startListening() {
     const ws = wsRef.current;
 
@@ -402,15 +368,14 @@ export default function Home({
       return;
     }
 
-    // Wire up the reply handler BEFORE recording starts so we don't miss the message
     const cleanup = onVoiceReply(ws, {
       onUserText: (raw) => {
         setAssistantText(`${strings.youAsked}: "${raw}"`);
       },
       onResult: async (aiText) => {
-        cleanup();                  // detach listener
+        cleanup();
         setVoiceStatus('idle');
-        await typeResponse(aiText); // types text + plays Piper audio
+        await typeResponse(aiText);
       },
       onError: (err) => {
         cleanup();
@@ -433,18 +398,6 @@ export default function Home({
     });
 
     setVoiceStatus('recording');
-=======
-  async function startListening() {
-    startVoiceRecognition({
-      lang: language,
-      onResult: async (text) => {
-        setAssistantText(`${strings.youAsked}: "${text}"`);
-        const data = await askMuseApi({ question: text, language });
-        await typeResponse(data.text);
-      },
-      onError: () => setAssistantText(strings.voiceError),
-    });
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
     setAssistantText(strings.listening);
   }
 
@@ -493,9 +446,7 @@ export default function Home({
               <button className="gold-btn" onClick={() => navigate('/artifacts')}>
                 {strings.exploreBtn}
               </button>
-<<<<<<< HEAD
 
-              {/* Voice button — shows recording state */}
               <button
                 className="glass-btn"
                 onClick={startListening}
@@ -515,25 +466,16 @@ export default function Home({
                   : strings.speakBtn}
               </button>
 
-=======
-              <button className="glass-btn" onClick={startListening}>
-                {strings.speakBtn}
-              </button>
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
               <button className="glass-btn" onClick={handleTour}>
                 {strings.tourBtn}
               </button>
             </div>
-<<<<<<< HEAD
 
-            {/* Small indicator when voice WS is offline */}
             {!wsReady && (
               <p style={{ fontSize: '.75rem', color: '#ff5050', marginTop: '8px' }}>
                 ⚠ Voice pipeline offline
               </p>
             )}
-=======
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
           </div>
           <div className="hero-robot">
             <div className="robot-circle">
@@ -616,11 +558,7 @@ export default function Home({
             <p style={{ color: 'var(--muted)', fontSize: '.9rem' }}>Artifacts on Display</p>
           </div>
 
-<<<<<<< HEAD
           {/* System health */}
-=======
-          {/* System health — driven by live bot statuses, no index required */}
->>>>>>> fe8a41808900b35f0792120ec5b1bccd53a4d629
           <div
             className="feature-card"
             style={{
@@ -735,4 +673,3 @@ export default function Home({
     </>
   );
 }
-
